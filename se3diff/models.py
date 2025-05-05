@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch._prims_common import DeviceLikeType
 
 from bioemu.models import SinusoidalPositionEmbedder
+from bioemu.so3_sde import DiGSO3SDE
 
 
-class ScoreNetwork(nn.Module):
+class ScoreNet(nn.Module):
     """Neural network to predict the score (3-vector) from a rotation and time."""
 
     def __init__(
@@ -31,7 +33,7 @@ class ScoreNetwork(nn.Module):
         )
 
         # Initialize weights of the network via Xavier uniform distribution.
-        for layer in self.net:
+        for layer in self.parameters():
             if isinstance(layer, nn.Linear):
                 nn.init.xavier_uniform_(layer.weight)
                 if layer.bias is not None:
@@ -58,7 +60,7 @@ class ScoreNetwork(nn.Module):
         return score_pred
 
 
-class SO3EquivariantScoreNetwork(nn.Module):
+class SO3EquivScoreNet(nn.Module):
     """
     SO(3)-equivariant score network.
     Takes an axis-angle rotation vector `rot_vec` and timestep `t`,
@@ -105,3 +107,31 @@ class SO3EquivariantScoreNetwork(nn.Module):
         alpha = self.scalar_net(features)  # (batch, 1)
         # Equivariant output: scale original vector
         return alpha * rot_vec
+
+
+class DiGMixSO3SDE(DiGSO3SDE):
+    def sample_multiple_igso3(
+        self,
+        mus: torch.Tensor,
+        sigmas: torch.Tensor,
+        weights: torch.Tensor,
+        num_samples: int,
+        device: DeviceLikeType | None = None,
+    ) -> torch.Tensor:
+        # ensure all tensors are on the right device
+        mus = mus.to(device)
+        sigmas = sigmas.to(device)
+        weights = weights.to(device)
+
+        # draw mixture components
+        k = torch.multinomial(weights, num_samples, replacement=True)  # (B,)
+        sigma = sigmas[k]  # (B,)
+        mu = mus[k]  # (B,3,3)
+
+        # sample random rotation from IGSO3 noise
+        r = self.igso3.sample(sigma, num_samples=1).squeeze(-3)  # (B,3,3)
+
+        # apply mean rotation
+        x0 = mu @ r  # (B,3,3)
+
+        return x0
