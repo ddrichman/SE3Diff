@@ -1,0 +1,78 @@
+@article {bioemu,
+	author = {Lewis, Sarah and Hempel, Tim and Jim{\'e}nez-Luna, Jos{\'e} and Gastegger, Michael and Xie, Yu and Foong, Andrew Y. K. and Satorras, Victor Garc{\'\i}a and Abdin, Osama and Veeling, Bastiaan S. and Zaporozhets, Iryna and Chen, Yaoyi and Yang, Soojung and Schneuing, Arne and Nigam, Jigyasa and Barbero, Federico and Stimper, Vincent and Campbell, Andrew and Yim, Jason and Lienen, Marten and Shi, Yu and Zheng, Shuxin and Schulz, Hannes and Munir, Usman and Tomioka, Ryota and Clementi, Cecilia and No{\'e}, Frank},
+	title = {Scalable emulation of protein equilibrium ensembles with generative deep learning},
+	elocation-id = {2024.12.05.626885},
+	year = {2025},
+	doi = {10.1101/2024.12.05.626885},
+	publisher = {Cold Spring Harbor Laboratory},
+	abstract = {Following the sequence and structure revolutions, predicting the dynamical mechanisms of proteins that implement biological function remains an outstanding scientific challenge. Several experimental techniques and molecular dynamics (MD) simulations can, in principle, determine conformational states, binding configurations and their probabilities, but suffer from low throughput. Here we develop a Biomolecular Emulator (BioEmu), a generative deep learning system that can generate thousands of statistically independent samples from the protein structure ensemble per hour on a single graphical processing unit. By leveraging novel training methods and vast data of protein structures, over 200 milliseconds of MD simulation, and experimental protein stabilities, BioEmu{\textquoteright}s protein ensembles represent equilibrium in a range of challenging and practically relevant metrics. Qualitatively, BioEmu samples many functionally relevant conformational changes, ranging from formation of cryptic pockets, over unfolding of specific protein regions, to large-scale domain rearrangements. Quantitatively, BioEmu samples protein conformations with relative free energy errors around 1 kcal/mol, as validated against millisecond-timescale MD simulation and experimentally-measured protein stabilities. By simultaneously emulating structural ensembles and thermodynamic properties, BioEmu reveals mechanistic insights, such as the causes for fold destabilization of mutants, and can efficiently provide experimentally-testable hypotheses.Competing Interest StatementThe authors have declared no competing interest.},
+	URL = {https://www.biorxiv.org/content/early/2025/02/25/2024.12.05.626885},
+	eprint = {https://www.biorxiv.org/content/early/2025/02/25/2024.12.05.626885.full.pdf},
+	journal = {bioRxiv}
+}
+
+@inproceedings{se3_diffusion,
+author = {Yim, Jason and Trippe, Brian L. and De Bortoli, Valentin and Mathieu, Emile and Doucet, Arnaud and Barzilay, Regina and Jaakkola, Tommi},
+title = {SE(3) diffusion model with application to protein backbone generation},
+year = {2023},
+publisher = {JMLR.org},
+abstract = {The design of novel protein structures remains a challenge in protein engineering for applications across biomedicine and chemistry. In this line of work, a diffusion model over rigid bodies in 3D (referred to as frames) has shown success in generating novel, functional protein backbones that have not been observed in nature. However, there exists no principled methodological framework for diffusion on SE(3), the space of orientation preserving rigid motions in R3, that operates on frames and confers the group invariance. We address these shortcomings by developing theoretical foundations of SE(3) invariant diffusion models on multiple frames followed by a novel framework, FrameDiff, for learning the SE(3) equivariant score over multiple frames. We apply FrameDiff on monomer backbone generation and find it can generate designable monomers up to 500 amino acids without relying on a pretrained protein structure prediction network that has been integral to previous methods. We find our samples are capable of generalizing beyond any known protein structure. Code: https://github.com/jasonkyuyim/se3_diffusion},
+booktitle = {Proceedings of the 40th International Conference on Machine Learning},
+articleno = {1672},
+numpages = {39},
+location = {Honolulu, Hawaii, USA},
+series = {ICML'23}
+}
+
+@inproceedings{score_based_diffusion,
+title={Score-Based Generative Modeling through Stochastic Differential Equations},
+author={Yang Song and Jascha Sohl-Dickstein and Diederik P Kingma and Abhishek Kumar and Stefano Ermon and Ben Poole},
+booktitle={International Conference on Learning Representations},
+year={2021},
+url={https://openreview.net/forum?id=PxTIG12RRHS}
+}
+
+@inproceedings{riemannian_diffusion,
+title={Riemannian Score-Based Generative Modelling},
+author={Valentin De Bortoli and Emile Mathieu and Michael John Hutchinson and James Thornton and Yee Whye Teh and Arnaud Doucet},
+booktitle={Advances in Neural Information Processing Systems},
+editor={Alice H. Oh and Alekh Agarwal and Danielle Belgrave and Kyunghyun Cho},
+year={2022},
+url={https://openreview.net/forum?id=oDRQGo8I7P}
+}
+
+@misc{girsanov_in_riemannian,
+      title={Generative Modeling on Manifolds Through Mixture of Riemannian Diffusion Processes}, 
+      author={Jaehyeong Jo and Sung Ju Hwang},
+      year={2024},
+      eprint={2310.07216},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2310.07216}, 
+}
+
+@misc{micro_lie_theory,
+      title={A micro Lie theory for state estimation in robotics}, 
+      author={Joan Solà and Jeremie Deray and Dinesh Atchuthan},
+      year={2021},
+      eprint={1812.01537},
+      archivePrefix={arXiv},
+      primaryClass={cs.RO},
+      url={https://arxiv.org/abs/1812.01537}, 
+}
+
+@inproceedings{so3_diffusion,
+title={Denoising Diffusion Probabilistic Models on {SO}(3) for Rotational Alignment},
+author={Adam Leach and Sebastian M Schmon and Matteo T. Degiacomi and Chris G. Willcocks},
+booktitle={ICLR 2022 Workshop on Geometrical and Topological Representation Learning},
+year={2022},
+url={https://openreview.net/forum?id=BY88eBbkpe5}
+}
+
+@book{sde_on_manifolds_hsu,
+  title={Stochastic Analysis on Manifolds},
+  author={Hsu, Elton P},
+  number={38},
+  year={2002},
+  publisher={American Mathematical Soc.}
+}

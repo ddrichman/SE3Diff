@@ -1,0 +1,425 @@
+%%%%%%%% ICML 2025 EXAMPLE LATEX SUBMISSION FILE %%%%%%%%%%%%%%%%%
+
+\documentclass{article}
+
+% Recommended, but optional, packages for figures and better typesetting:
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subfigure}
+\usepackage{booktabs} % for professional tables
+
+\usepackage{physics}
+\usepackage{mhchem}
+\usepackage{bm}
+\usepackage{mathtools}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+% hyperref makes hyperlinks in the resulting PDF.
+% If your build breaks (sometimes temporarily if a hyperlink spans a page)
+% please comment out the following usepackage line and replace
+% \usepackage{icml2025} with \usepackage[nohyperref]{icml2025} above.
+\usepackage{hyperref}
+
+
+% Attempt to make hyperref and algorithmic work together better:
+\renewcommand{\theHalgorithm}{\arabic{algorithm}}
+
+% Use the following line for the initial blind version submitted for review:
+\usepackage[accepted]{icml2025}
+
+% If accepted, instead use the following line for the camera-ready submission:
+% \usepackage[accepted]{icml2025}
+
+% For theorems and such
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{amsthm}
+\usepackage{thmtools}
+\usepackage{thm-restate}
+
+% if you use cleveref..
+\usepackage[capitalize,noabbrev]{cleveref}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% THEOREMS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+% Todonotes is useful during development; simply uncomment the next line
+%    and comment out the line below the next line to turn off comments
+%\usepackage[disable,textsize=tiny]{todonotes}
+\usepackage[textsize=tiny]{todonotes}
+
+% enable \mathscr
+\usepackage{mathrsfs}
+
+% define SE(3), SO(3) and IGSO(3) in math mode
+\DeclareMathOperator{\SE}{SE}
+\DeclareMathOperator{\SO}{SO}
+\DeclareMathOperator{\IGSO}{IGSO}
+\DeclareMathOperator{\se}{\mathfrak{se}}
+\DeclareMathOperator{\so}{\mathfrak{so}}
+\DeclareMathOperator{\igso}{\mathfrak{igso}}
+
+% define \Exp and \Log for Lie groups
+\DeclareMathOperator{\Exp}{\operatorname{Exp}}
+\DeclareMathOperator{\Log}{\operatorname{Log}}
+
+% define \argmax and \argmin
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+% define \R \N \Z \C
+\DeclareMathOperator{\R}{\mathbb{R}}
+\DeclareMathOperator{\N}{\mathbb{N}}
+\DeclareMathOperator{\Z}{\mathbb{Z}}
+\DeclareMathOperator{\C}{\mathbb{C}}
+\DeclareMathOperator{\Q}{\mathbb{Q}}
+\DeclareMathOperator{\F}{\mathbb{F}}
+
+% define \P \E
+\let\P\relax
+\DeclareMathOperator{\P}{\mathbb{P}}
+\DeclareMathOperator{\E}{\mathbb{E}}
+
+% define stop-grad
+\DeclareMathOperator{\sg}{\mathrm{sg}}
+
+\newcommand{\inner}[2]{\left\langle #1, #2\right\rangle}
+
+% The \icmltitle you define below is probably too long as a header.
+% Therefore, a short form for the running title is supplied here:
+\icmltitlerunning{Fine-tuning BioEmu}
+
+\begin{document}
+
+\twocolumn[
+    \icmltitle{Fine-tuning BioEmu for Accurate Protein Folding Stability Prediction}
+
+    \icmlsetsymbol{equal}{*}
+
+    \begin{icmlauthorlist}
+        \icmlauthor{Zhaoyang Li}{equal,zhaoyangli}
+        % \icmlauthor{Brian L. Trippe}{equal,btrippe}
+    \end{icmlauthorlist}
+
+    \icmlaffiliation{zhaoyangli}{Department of Bioengineering, Stanford University, CA 94305, USA}
+    % \icmlaffiliation{btrippe}{Department of Statistics, Stanford University, CA 94305, USA}
+
+    \icmlcorrespondingauthor{Zhaoyang Li}{zhaoyangli@stanford.edu}
+    % \icmlcorrespondingauthor{Brian L. Trippe}{btrippe@stanford.edu}
+
+    \icmlkeywords{Machine Learning, ICML}
+
+    \vskip 0.3in
+]
+
+\printAffiliationsAndNotice{\icmlEqualContribution} % otherwise use the standard text.
+
+\begin{abstract}
+    Recent advances in protein structure prediction models such as AlphaFold have largely resolved static folding problems. However, accurately profiling dynamic protein conformations to estimate folding stabilities remains a huge challenge.
+    Biomolecular Emulator (BioEmu) is a recent generative deep learning framework that employs a Property Prediction Fine-Tuning (PPFT) algorithm that integrates extensive MEGAScale experimental datasets with molecular dynamics (MD) simulations to infer folding free energies. Despite its innovative design, preliminary fine-tuning results revealed limitations in predictive accuracy.
+    In this work, we propose a novel approach that efficiently fine-tunes a $\SE(3)$ equivariant diffusion model using experimental expectation values, while preserving the majority of the pretrained parameters to maintain the integrity of the underlying diffusion process. This work may mark a significant advance in the integration of experimental data with deep generative models, paving the way for more reliable computational assessments of protein folding energy landscapes.
+\end{abstract}
+
+\section{Introduction}
+
+Predicting protein stability (e.g.\ folding free energy changes $\Delta\Delta G$) from sequence and limited structural information is a long-standing challenge. Biomolecular Emulator (BioEmu) is a recently proposed generative diffusion model that addresses this by emulating protein conformational ensembles and integrating experimental stability data~\cite{bioemu}. In BioEmu's original framework, a property-prediction fine-tuning (PPFT) algorithm was used to incorporate experimental stability measurements without requiring known structures. PPFT works by generating a small ensemble of structures (using a fast $8$-step diffusion sampling) and comparing an observable (fraction of folded structures) to experimental values, then backpropagating the error to adjust the model. This strategy enabled BioEmu to predict stability with high accuracy, outperforming black-box sequence-based models.
+
+However, the PPFT approach has limitations: it introduces an approximation in sampling that may perturb the pretrained distribution, and it does not explicitly account for the geometrical symmetries of protein conformations. Recent advances in $\SE(3)$ equivariant diffusion modeling provide a more principled framework for generative processes on the manifold of rigid-body transformations~\cite{se3_diffusion}. Our central idea is to reinterpret fine-tuning as a constrained optimization on the manifold of protein conformations, where we impose that certain expected observables match experimental values while minimally perturbing the pretrained ensemble distribution. This project will pursue that idea in four stages, each serving as an independent milestone:
+
+\section{Preliminaries and Notation}
+
+Throughout this paper we adopt the following notation and conventions.
+
+\paragraph{Manifolds and Lie groups.}
+Let $\mathcal{M}$ denote a smooth, $d$-dimensional Riemannian manifold with metric $\inner{\cdot}{\cdot}_{\mathcal{M}}$ and associated volume form $\dd V$. $\mathbf{X} \in \mathcal{M}$ is a point on the manifold. We write $\SO(3)$ for the group of $3\times3$ rotation matrices and $\so(3)$ for its Lie algebra, and similarly $\SE(3)\cong\SO(3)\ltimes\R^3$ with Lie algebra $\se(3)=\so(3)\oplus\R^3$.
+
+For any Lie group $G$ and its Lie algebra $\mathfrak{g}$, $\exp:\mathfrak{g}\to G$ is the Riemannian exponential map, and $\log:G\to\mathfrak{g}$ its (local) inverse. The isomorphism hat $[\cdot]^\wedge:\R^d \to\mathfrak{g}$ and vee $[\cdot]^\vee:\mathfrak{g}\to\R^d$, i.e.\ the vectorization and de-vectorization maps, induce $\Exp:\R^d\to G$ and $\Log:G\to\R^d$ by the composition of mappings, respectively.
+
+The left action of $g\in G$ on $h\in G$ is $L_g(h)=gh$ and its differential is $\dd L_g: T_hG\to T_{gh}G$. The metric on $\SE(3)$ is given by the canonical left-invariant metric, which is induced by the standard inner product on $\so(3)$ and $\R^3$, i.e.\ $\inner{\mathbf{t}_1}{\mathbf{t}_2}_{\SE(3)}=\inner{\mathbf{x}_1}{\mathbf{x}_2}_{\R^3}+\inner{\mathbf{r}_1}{\mathbf{r}_2}_{\SO(3)}$ for $\mathbf{t}_1 =(\mathbf{r}_1,\mathbf{x}_1) \in \se(3)$ and $\mathbf{t}_2 =(\mathbf{r}_2,\mathbf{x}_2) \in \se(3)$. The bi-invariant Riemannian metric on $\SO(3)$ is given by its Killing form $\inner{\mathbf{r}_1}{\mathbf{r}_2}_{\SO(3)}=\frac{1}{2}\mathrm{tr}(\mathbf{r}_1^\mathrm{T}\mathbf{r}_2)$, where $\mathbf{r}_1,\mathbf{r}_2\in\so(3)$.
+
+\paragraph{Protein backbone frames.}
+A protein backbone of $N$ residues is represented by a sequence of rigid frames
+\begin{equation*}
+    \mathbf{T} = (\mathbf{T}_1,\dots,\mathbf{T}_N) \in \SE(3)^N,
+    \quad \mathbf{T}_n=(\mathbf{R}_n,\mathbf{x}_n)
+\end{equation*}
+where $\mathbf{R}_n\in\SO(3)$ is the rotation matrix and $\mathbf{x}_n\in\R^3$ is the translation vector for residue $n$.
+Each frame acts on the idealized residue coordinates $(\ce{N}^*,\ce{C}^*,\ce{C_\alpha}^*)\subset\R^3$ via
+$\mathbf{T}_n(v)=\mathbf{R}_n v+\mathbf{x}_n$, so that the atomic positions for residue $n$ are
+\begin{equation*}
+    (\ce{N}_n,\ce{C}_n,{\ce{C_\alpha}}_n)=\mathbf{T}_n (\ce{N}^*,\ce{C}^*,\ce{C_\alpha}^*),
+\end{equation*}
+and the \ce{O} atom is placed by an additional torsion angle $\psi_n$ around the \ce{C_\alpha-C} bond.
+
+\paragraph{Diffusion on manifolds.}
+We consider time $t\in[0, 1]$ and a forward and reverse It\^o SDE on $\mathcal{M}$:
+\begin{align}
+    \dd\mathbf{X}_t & = b(\mathbf{X}_t, t) \dd t + g(t) \dd \mathbf{W}_t^\mathcal{M}                                                             \\
+    \dd\mathbf{X}_t & = \qty(b(\mathbf{X}_t, t) - g(t)^2 \nabla_{\mathbf{X}_t} \log p_t(\mathbf{X}_t)) \dd t + g(t) \dd \mathbf{W}_t^\mathcal{M}
+\end{align}
+where $\mathbf{W}_t^\mathcal{M}$ is Brownian motion on $\mathcal{M}$, $b(\mathbf{X}_t, t)$ a drift term, and $g(t)$ a diffusion coefficient. The time-reversed process requires the Stein score $\nabla_{\mathbf{X}_t} \log p_t(\mathbf{X}_t)$, which is the Riemannian gradient of the log-density.
+
+\paragraph{Distributions on Lie groups.}
+We denote the isotropic Gaussian distribution on $\SO(3)$ as $\IGSO(3)(\mathbf{R}_0, \sigma^2)$, where $\mathbf{R}_0$ is the mean rotation and $\sigma^2$ is the variance. The probability density function (PDF) of $\mathbf{R}_t \sim \IGSO(3)(\mathbf{R}_0, \sigma^2)$ when $t=\sigma^2$ is given by
+\begin{equation}
+    p(\mathbf{R}_t;\mathbf{R}_0, \sigma) = \frac{1}{8\pi^2}\sum_{\ell=0}^{\infty} (2\ell+1)e^{-\frac{\sigma^2}{2}\ell(\ell+1)}\chi_\ell(\mathbf{R}_0^\mathrm{T}\mathbf{R}_t)
+\end{equation}
+with respect to the canonical Haar measure on $\SO(3)$, $\mu_{\SO(3)} = 4\sin^2\frac{\omega}{2}\dd\omega\wedge\dd\varOmega$. Here $\chi_\ell$ is the $\ell$-th irreducible unitary representation of dimension $2\ell+1$ and $\varOmega$ is the solid angle on $\mathbb{S}^2$. The axis-angle representation $\mathbf{q} = \Log(\mathbf{R})$ and $\omega = \norm{\mathbf{q}}_2$ is used to describe the rotation for score matching. A random variable $\mathbf{R}_t\sim\IGSO(3)(\mathbf{R}_0, \sigma^2)$ is sampled from $\mathbf{R}_0\IGSO(3)(\mathbf{I}, \sigma^2)$, where $\mathbf{I}$ is the identity matrix.
+
+\section{Stage 1: Prototype $\IGSO(3)$ Diffusion on $\SO(3)$}
+
+The first milestone is to prototype an isotropic Gaussian $\SO(3)$ ($\IGSO(3)$) diffusion process using a toy problem~\cite{so3_diffusion}. We will begin with a simple synthetic distribution on $\SO(3)$ (for example, a bimodal mixture of two distinct orientations) and attempt to sample from it using an $\IGSO(3)$ diffusion process. Key steps include:
+(i) formulating the forward and reverse diffusion SDEs for $\mathbf{X} \in \mathcal{M}$~\cite{riemannian_diffusion};
+(ii) parameterizing $\SO(3)$ diffusion with a suitable representation of rotation~\cite{micro_lie_theory};
+
+\begin{proposition}[Marginal Distribution of $\IGSO(3)$]\label{prop:marginal_igso3}
+    Let $\mathbf{R}_t \sim \IGSO(3)(\mathbf{R}_0, \sigma^2)$ be a random rotation matrix. The marginal distribution of its rotation angle $\omega_t = \norm{\Log(\mathbf{R}_t)}_2$ is given by its PDF $\frac{1-\cos\omega_t}{\pi}f(\omega_t; \mathbf{R}_0, \sigma)$, where $f(\omega_t; \mathbf{R}_0, \sigma)$ is defined as
+    \begin{equation}
+        f(\omega_t; \mathbf{R}_0, \sigma) = \sum_{\ell=0}^{\infty} e^{-\frac{\sigma^2}{2}\ell(\ell+1)}\frac{\sin\left(\ell+\frac{1}{2}\right)\omega_0}{\sin \frac{\omega_0}{2}}\frac{\sin\left(\ell+\frac{1}{2}\right)\omega_t}{\sin \frac{\omega_t}{2}}
+    \end{equation}
+    Here $\omega_0 = \norm{\Log(\mathbf{R}_0)}_2$ is the rotation angle of $\mathbf{R}_0$.
+\end{proposition}
+
+\begin{proposition}[Axis-Angle Decomposition of the $\IGSO(3)$ Distribution]\label{prop:axis_angle_decomposition}
+    Let $\mathbf{R} = \mathbf{R}_0^\mathrm{T}\mathbf{R}_t$ be a random rotation matrix sampled from $\IGSO(3)(\mathbf{I}, \sigma^2)$ (so that $\mathbf{R}_{t} \sim \IGSO(3)(\mathbf{R}_0, \sigma^2)$). Let $\mathbf{q} = \Log(\mathbf{R})$ and $\omega = \norm{\mathbf{q}}_2$ be the axis-angle representation. Then the axis-angle decomposition of $\mathbf{R}$ is given by
+    \begin{align}
+        \frac{\mathbf{q}}{\omega} & \sim \mathcal{U}(\mathbb{S}^2)                             \\
+        \omega                    & \sim \frac{1-\cos\omega}{\pi}f(\omega; \mathbf{I}, \sigma)
+    \end{align}
+    where $\mathcal{U}(\mathbb{S}^2)$ is the uniform distribution on the unit sphere $\mathbb{S}^2$.
+\end{proposition}
+
+and (iii) training a neural network $s_\theta(\mathbf{R}_t, t) \in \R^3$ to approximate the score function via denoising score matching~\cite{score_based_diffusion}.
+
+\begin{proposition}[Form of the Stein Score on $\SO(3)$]\label{prop:stein_score}
+    Let $\mathbf{R}_0, \mathbf{R}_t\in\SO(3)$ and write their relative rotation as $\mathbf{R} = \mathbf{R}_0^\mathrm{T}\mathbf{R}_t$. Then the Stein score function $s^*(\mathbf{q}, t) \in \R^3$ at time $t = \sigma^2$ of the reverse diffusion process satisfies
+    \begin{equation}
+        \begin{aligned}
+            s^*(\mathbf{q}, t) & = \qty[\mathbf{R}_t^\mathrm{T} \nabla_{\mathbf{R}_t} \log p_t(\mathbf{R}_t\mid \mathbf{R}_0)]^\vee \\
+                               & = \frac{\mathbf{q}}{\omega} \pdv{\omega} \log f(\omega; \mathbf{I}, \sigma)
+        \end{aligned}
+    \end{equation}
+    where $p_t(\mathbf{R}_t\mid \mathbf{R}_0)$ is the conditional distribution of $\mathbf{R}_t$ given $\mathbf{R}_0$ and $\omega = \norm{\Log(\mathbf{R})}_2$ is the relative rotation angle.
+\end{proposition}
+
+The training objective is to minimize the denoising score matching loss:
+\begin{equation}
+    \argmin_\theta \mathbb{E}_{\mathbf{R}_0, \mathbf{R}_t\mid \mathbf{R}_0, t} \qty[\norm{\lambda(t) s_\theta(\mathbf{R}_t, t)-\lambda(t) s^*(\mathbf{q}, t)}^2_2]
+\end{equation}
+where $\lambda(t)$ is a time-dependent weighting function.
+
+We will visualize the rotation angle distribution to confirm that the diffusion model can recover the mixture. Successfully generating samples that match the toy distribution will build confidence in applying similar $\SE(3)$ equivariant diffusion principles to protein models.
+
+\begin{algorithm}[!ht]
+    \caption{Euler-Maruyama Predictor on $\SO(3)$}\label{alg:em_predictor_so3}
+    \begin{algorithmic}[1]
+        \REQUIRE SDE on $\SO(3)$ $\texttt{SO3SDE}$, score network $\texttt{ScoreNet}$, number of steps $N_\text{steps}$, noise weight $\lambda(t)$
+        \ENSURE Sample $\mathbf{R}_0$
+        \STATE $\qty{t_i}_{i=0}^{N_\text{steps}} \leftarrow \mathrm{linspace}(1, 0, N_\text{steps}+1)$
+        \STATE $\Delta t \leftarrow \frac{1}{N_\text{steps}}$
+        \STATE $\mathbf{R}_1 \sim \mathcal{U}(\SO(3))$
+        \STATE $\mathbf{R} \leftarrow \mathbf{R}_1$
+        \FOR{$i = 0$ {\bf to} $N_\text{steps}-1$}
+        \STATE $t \leftarrow t_i$
+        \STATE $s_\theta(\mathbf{R}, t) \leftarrow \texttt{ScoreNet}(\mathbf{R}, t)\cdot \frac{1}{\lambda(t)}$
+        \STATE $(b(\mathbf{R}, t),g(t)) \leftarrow \texttt{SO3SDE}(\mathbf{R}, t)$
+        \STATE $b(\mathbf{R}, t) \leftarrow b(\mathbf{R}, t) - g(t)^2 s_\theta(\mathbf{R}, t)$
+        \STATE $z \sim \mathcal{N}(0, \mathbf{I})$
+        \STATE $\mathbf{R} \leftarrow \mathbf{R} \Exp\qty(b(\mathbf{R}, t)\Delta t)$
+        \STATE $\mathbf{R} \leftarrow \mathbf{R} \Exp\qty(g(t)z\sqrt{\Delta t})$
+        \ENDFOR
+        \STATE $\mathbf{R}_0 \leftarrow \mathbf{R}$
+        \RETURN $\mathbf{R}_0$
+    \end{algorithmic}
+\end{algorithm}
+
+{\bf Milestone outcome:} a Jupyter notebook demonstrating correct $\SO(3)$ diffusion sampling, which we can later integrate into the BioEmu framework.
+
+\section{Stage 2: Fine-tuning BioEmu Demonstration on a Single Protein}
+
+Next, we will apply the new fine-tuning method on BioEmu for a single protein sequence to demonstrate a proof-of-concept in a real-world scenario. Prior to this, we will need to fine-tune the toy model of two $\IGSO(3)$ distributions to adjust their mixture weights. Suppose we introduce an additional drift term into the original reverse diffusion process:
+\begin{equation}
+    \begin{aligned}
+        \dd\tilde{\mathbf{X}}_t ={} &
+        \qty(b(\tilde{\mathbf{X}}_t, t)
+        - g(t)^2\nabla_{\tilde{\mathbf{X}}_t}\log p_t(\mathbf{X}_t))\dd t   \\
+                                    & + g(t)u(\tilde{\mathbf{X}}_t, t)\dd t
+        + g(t)\dd \mathbf{W}_t^\mathcal{M}
+    \end{aligned}
+\end{equation}
+and minimize the Kullback-Leibler divergence between the original and perturbed distributions~\cite{sde_on_manifolds_hsu}:
+\begin{equation}
+    \begin{aligned}
+        D_\text{KL}(\tilde{\mathbf{X}}_0\parallel \mathbf{X}_0) & \leq D_\text{KL}(\tilde{\P}\parallel \P)                                                                  \\
+                                                                & = \frac{1}{2}\mathbb{E}_{\tilde{\P}} \qty[\int_0^1 \norm{u(\tilde{\mathbf{X}}_t, t)}_\mathcal{M}^2 \dd t]
+    \end{aligned}
+\end{equation}
+to solve the following constrained optimization problem:
+\begin{equation}
+    \begin{aligned}
+         & \argmin_{u} D_\text{KL}(\tilde{\mathbf{X}}_0\parallel \mathbf{X}_0)   \\
+        \text{s.t.} \quad
+         & \mathbb{E}_{\tilde{\mathbf{X}}_0}[h_i(\tilde{\mathbf{X}}_0)] = h_i^*,
+        \quad i = 1,\dots,N\,.
+    \end{aligned}
+\end{equation}
+
+Then we will select an example protein with an extreme stability phenotype. One candidate is an IDP from the CALVADOS dataset used in the BioEmu paper. Using this protein, our method will enforce this via the constrained optimization above. After fine-tuning on this single sequence, we expect that an IDP's generated conformations will be mostly unfolded, matching experimental observations.
+
+    {\bf Milestone outcome:} a demonstration that our fine-tuning method works on the toy model and can successfully alter the BioEmu's predictions for a specific protein in a manner consistent with experimental stability data.
+
+\section{Stage 3: Scaling to MEGAScale Dataset and MD Data}
+
+Having validated the approach on a single protein, we will extend it to a large-scale fine-tuning using the MEGAScale dataset of protein folding stabilities, which was also used in training the original BioEmu. For each protein or mutant in the training set, the model will generate an ensemble and compute an expected stability-related quantity. We will then compute the error between these model predictions and the experimental values, and update the model parameters to reduce this error. In addition to the experimental data, we will also attempt to incorporate the molecular dynamics (MD) simulation dataset to provide direct structural physics signals.
+
+    {\bf Milestone outcome:} a fine-tuned version of the BioEmu model that integrates experimental stability data via our SE(3) equivariant constrained fine-tuning method. This model should have hopefully improved accuracy (in terms of predicted vs experimental $\Delta\Delta G$) while retaining physically plausible conformational sampling.
+
+\section{Stage 4: Benchmarking and Evaluation}
+
+The final stage focuses on rigorous evaluation of the fine-tuned model against benchmarks, and comparison to the original PPFT-based BioEmu. We will use the same evaluation protocols and datasets as the original BioEmu study to ensure a direct comparison.
+First, on the held-out stability dataset, we will assess the predictive $\Delta\Delta G$ accuracy of our model.
+Next, we will evaluate if our model has preserved the pretrained distribution aside from the intended shifts in stability-related aspects. For example, we will apply our fine-tuned model to sample ensembles for proteins with known conformational changes or binding events to verify that it still generates diverse, biologically relevant conformations.
+Finally, we will compare our model’s predictions to other computational stability predictors such as single-point mutations with known experimental $\Delta\Delta G$ (ProTherm or the SKEMPI database) and see how well our model’s predicted stability change correlates with experiments.
+
+    {\bf Milestone outcome:} a comprehensive benchmark report. We expect to show that our SE(3) equivariant fine-tuning method achieves at least comparable accuracy to PPFT on stability prediction, and we will highlight any improvements.
+
+% \section{Related Work}
+
+% \section{Experiment}
+
+% \section{Discussion}
+
+% Acknowledgements should only appear in the accepted version.
+% \section*{Acknowledgements}
+
+% In the unusual situation where you want a paper to appear in the
+% references without citing it in the main text, use \nocite
+% \nocite{bioemu}
+
+\bibliography{example_paper}
+\bibliographystyle{icml2025}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% APPENDIX
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newpage
+\appendix
+\onecolumn
+
+\section{Brownian Motion on Lie Groups}
+
+\begin{proposition}[Marginal Distribution of $\IGSO(3)$]\label{prop:marginal_igso3}
+    Let $\mathbf{R}_t \sim \IGSO(3)(\mathbf{R}_0, \sigma^2)$ be a random rotation matrix. The marginal distribution of its rotation angle $\omega_t = \norm{\Log(\mathbf{R}_t)}_2$ is given by its PDF $\frac{1-\cos\omega_t}{\pi}f(\omega_t; \mathbf{R}_0, \sigma)$, where $f(\omega_t; \mathbf{R}_0, \sigma)$ is defined as
+    \begin{equation}
+        f(\omega_t; \mathbf{R}_0, \sigma) = \sum_{\ell=0}^{\infty} e^{-\frac{\sigma^2}{2}\ell(\ell+1)}\frac{\sin\left(\ell+\frac{1}{2}\right)\omega_0}{\sin \frac{\omega_0}{2}}\frac{\sin\left(\ell+\frac{1}{2}\right)\omega_t}{\sin \frac{\omega_t}{2}}
+    \end{equation}
+    Here $\omega_0 = \norm{\Log(\mathbf{R}_0)}_2$ is the rotation angle of $\mathbf{R}_0$.
+\end{proposition}
+
+\begin{proof}
+    The proof follows from the fact that the marginal distribution of $\omega_t$ is given by integrating the joint density against the Haar measure $\dd \mu_{\SO(3)} = 4\sin^2\frac{\omega}{2}\dd\omega\wedge\dd\varOmega$, constrained to rotations of fixed angle on $\mathbb{S}^2$:
+    \begin{equation}
+        \begin{aligned}
+            \frac{1-\cos\omega_t}{\pi}f(\omega_t; \mathbf{R}_0, \sigma) & =4\sin^2\frac{\omega_t}{2}\int_{\mathbb{S}^2} p(\mathbf{R}_t; \mathbf{R}_0,\sigma) \dd\varOmega \\
+             &= \frac{1-\cos\omega_t}{4\pi^2}\sum_{\ell=0}^{\infty} (2\ell+1)e^{-\frac{\sigma^2}{2}\ell(\ell+1)}\int_{\mathbb{S}^2} \chi_\ell(\mathbf{R}_0^\mathrm{T}\mathbf{R}_t) \dd\varOmega
+        \end{aligned}
+    \end{equation}
+    where $\chi_\ell(\mathbf{R}_0^\mathrm{T}\mathbf{R}_t)$ denotes the $\ell$-th irreducible unitary representation of $2\ell+1$ dimension. Writing the character in terms of Wigner $D$-matrices:
+    \begin{equation}
+        \begin{aligned}
+            \chi_\ell(\mathbf{R}_0^\mathrm{T}\mathbf{R}_t) & = \sum_{m=-\ell}^{\ell} D_{mm}^{(\ell)}(\mathbf{R}_0^\mathrm{T}\mathbf{R}_t) \\
+            & = \sum_{m=-\ell}^{\ell} \sum_{n=-\ell}^{\ell} D_{mn}^{(\ell)}(\mathbf{R}_0) D_{nm}^{(\ell)}(\mathbf{R}_t) \\
+            \end{aligned}
+    \end{equation}
+    
+    Now consider integrating $D^{(\ell)}(\mathbf{R}_t)$ on $\mathbb{S}^2$. For any $\mathbf{R} \in \SO(3)$, the integral over the class of rotations sharing a given rotation angle is invariant under conjugation, which implies
+    \begin{equation}
+        \begin{aligned}
+            \int_{\mathbb{S}^2} D^{(\ell)}(\mathbf{R}_t) \dd\varOmega & = \int_{\mathbb{S}^2} D^{(\ell)}(\mathbf{R}\mathbf{R}_t\mathbf{R}^{-1}) \dd\varOmega \\
+            & = D^{(\ell)}(\mathbf{R})\qty(\int_{\mathbb{S}^2} D^{(\ell)}(\mathbf{R}_t) \dd\varOmega) D^{(\ell)}(\mathbf{R})^{-1} 
+        \end{aligned}
+    \end{equation}
+    According to Schur's lemma, this integral must be proportional to the identity matrix, so we can write
+    \begin{equation}
+        \begin{aligned}
+            \int_{\mathbb{S}^2} D^{(\ell)}(\mathbf{R}_t) \dd\varOmega & = \frac{1}{2\ell + 1} \tr\qty(\int_{\mathbb{S}^2} D^{(\ell)}(\mathbf{R}_t) \dd\varOmega) \mathbf{I} \\
+            & = \frac{4\pi}{2\ell + 1} \chi_\ell(\mathbf{R}_t) \mathbf{I}
+    \end{aligned}
+    \end{equation}
+    where $\mathbf{I}$ is the identity matrix. Thus, we can express the integral of $\chi_\ell(\mathbf{R}_0^\mathrm{T}\mathbf{R}_t)$ as
+    \begin{equation}
+        \begin{aligned}
+            \int_{\mathbb{S}^2} \chi_\ell(\mathbf{R}_0^\mathrm{T}\mathbf{R}_t) \dd\varOmega & = \sum_{m=-\ell}^{\ell} \sum_{n=-\ell}^{\ell} D_{mn}^{(\ell)}(\mathbf{R}_0) \frac{4\pi}{2\ell + 1} \chi_\ell(\mathbf{R}_t) \delta_{mn} \\
+            & = \frac{4\pi}{2\ell + 1} \chi_\ell(\mathbf{R}_t) \sum_{m=-\ell}^{\ell} D_{mm}^{(\ell)}(\mathbf{R}_0) \\
+            & = \frac{4\pi}{2\ell + 1} \chi_\ell(\mathbf{R}_0) \chi_\ell(\mathbf{R}_t) \\
+        \end{aligned}
+    \end{equation}
+
+    Substituting this back into the marginal distribution finally gives
+    \begin{equation}
+        \begin{aligned}
+            f(\omega_t; \mathbf{R}_0, \sigma) & = \frac{1}{4\pi} \sum_{\ell=0}^{\infty} (2\ell + 1) e^{-\frac{\sigma^2}{2}\ell(\ell+1)}\int_{\mathbb{S}^2} \chi_\ell(\mathbf{R}_0^\mathrm{T}\mathbf{R}_t) \dd\varOmega \\
+            & = \sum_{\ell=0}^{\infty} e^{-\frac{\sigma^2}{2}\ell(\ell+1)}\frac{\sin\left(\ell+\frac{1}{2}\right)\omega_0}{\sin \frac{\omega_0}{2}}\frac{\sin\left(\ell+\frac{1}{2}\right)\omega_t}{\sin \frac{\omega_t}{2}}
+        \end{aligned}
+    \end{equation}
+\end{proof}
+
+\section{Fine-tuning diffusion models on Riemannian manifolds}
+
+\begin{equation}
+    \begin{aligned}
+        \mathcal{L}(\theta) & = \mathbb{E}_{\tilde{\P}_\theta} \qty[L_\theta(\mathbf{X})] \\
+        & = \mathbb{E}_{\tilde{\P}_{\sg(\theta)}}\qty[w_\theta(\mathbf{X})L_\theta(\mathbf{X})]
+    \end{aligned}
+\end{equation}
+
+\begin{equation}
+    \begin{aligned}
+        w_\theta(\mathbf{X}) & = \frac{\dd \tilde{\P}_\theta}{\dd \tilde{\P}_{\sg(\theta)}}(\mathbf{X}) \\
+        & = \exp(\int_0^1 \inner{u_\theta(\mathbf{X}_t, t)-u_{\sg(\theta)}(\mathbf{X}_t, t)}{\dd \mathbf{W}_t^\mathcal{M}}_\mathcal{M} -\frac{1}{2}\int_0^1 \norm{u_\theta(\mathbf{X}_t, t)-u_{\sg(\theta)}(\mathbf{X}_t, t)}^2_\mathcal{M} \dd t)
+    \end{aligned}
+\end{equation}
+
+\begin{equation}
+    \begin{aligned}
+        \pdv{\theta} \mathcal{L}(\theta) & = \mathbb{E}_{\tilde{\P}_{\sg(\theta)}} \qty[\pdv{\theta} \qty(w_\theta(\mathbf{X})L_\theta(\mathbf{X}))] \\
+        & = \mathbb{E}_{\tilde{\P}_{\sg(\theta)}} \qty[w_\theta(\mathbf{X})\pdv{\theta} L_\theta(\mathbf{X})] + \mathbb{E}_{\tilde{\P}_{\sg(\theta)}} \qty[\pdv{\theta} w_\theta(\mathbf{X})L_\theta(\mathbf{X})]
+    \end{aligned}
+\end{equation}
+
+\begin{equation}
+    \begin{aligned}
+        \pdv{\theta} w_\theta(\mathbf{X}) & = w_\theta(\mathbf{X})\int_0^1 \inner{\nabla_\theta u_\theta(\mathbf{X}_t, t)}{\dd \mathbf{W}_t^\mathcal{M}}_\mathcal{M} \\
+        & = \int_0^1 \inner{\nabla_\theta u_\theta(\mathbf{X}_t, t)}{\dd \mathbf{W}_t^\mathcal{M}}_\mathcal{M}
+    \end{aligned}
+\end{equation}
+
+\begin{align}
+    \hat{\mathcal{L}}_\text{EV}(\theta) & = \sum_{i=1}^{N}\qty(\qty(\frac{1}{M} \sum_{j=1}^M w_\theta(\mathbf{X}^{(j)}) h_i(\mathbf{X}_0^{(j)}) - h_i^*)^2 - 
+    \frac{1}{M(M-1)}\sum_{j=1}^M \qty(w_\theta(\mathbf{X}^{(j)}) h_i(\mathbf{X}_0^{(j)}) - \frac{1}{M} \sum_{j=1}^M w_\theta(\mathbf{X}_0^{(j)}) h_i(\mathbf{X}_0^{(j)}))^2) \\
+    \hat{\mathcal{L}}_\text{KL}(\theta) & = \frac{1}{2M} \sum_{j=1}^M \qty(w_\theta(\mathbf{X}^{(j)}) \int_0^1 \norm{u_\theta(\mathbf{X}_t^{(j)}, t)}_\mathcal{M}^2 \dd t) \\
+    \hat{\mathcal{L}}(\theta) & = \hat{\mathcal{L}}_\text{EV}(\theta) + \lambda \hat{\mathcal{L}}_\text{KL}(\theta)
+\end{align}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\end{document}

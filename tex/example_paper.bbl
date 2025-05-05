@@ -1,0 +1,48 @@
+\begin{thebibliography}{7}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Bortoli et~al.(2022)Bortoli, Mathieu, Hutchinson, Thornton, Teh, and Doucet]{riemannian_diffusion}
+Bortoli, V.~D., Mathieu, E., Hutchinson, M.~J., Thornton, J., Teh, Y.~W., and Doucet, A.
+\newblock Riemannian score-based generative modelling.
+\newblock In Oh, A.~H., Agarwal, A., Belgrave, D., and Cho, K. (eds.), \emph{Advances in Neural Information Processing Systems}, 2022.
+\newblock URL \url{https://openreview.net/forum?id=oDRQGo8I7P}.
+
+\bibitem[Hsu(2002)]{sde_on_manifolds_hsu}
+Hsu, E.~P.
+\newblock \emph{Stochastic Analysis on Manifolds}.
+\newblock Number~38. American Mathematical Soc., 2002.
+
+\bibitem[Leach et~al.(2022)Leach, Schmon, Degiacomi, and Willcocks]{so3_diffusion}
+Leach, A., Schmon, S.~M., Degiacomi, M.~T., and Willcocks, C.~G.
+\newblock Denoising diffusion probabilistic models on {SO}(3) for rotational alignment.
+\newblock In \emph{ICLR 2022 Workshop on Geometrical and Topological Representation Learning}, 2022.
+\newblock URL \url{https://openreview.net/forum?id=BY88eBbkpe5}.
+
+\bibitem[Lewis et~al.(2025)Lewis, Hempel, Jim{\'e}nez-Luna, Gastegger, Xie, Foong, Satorras, Abdin, Veeling, Zaporozhets, Chen, Yang, Schneuing, Nigam, Barbero, Stimper, Campbell, Yim, Lienen, Shi, Zheng, Schulz, Munir, Tomioka, Clementi, and No{\'e}]{bioemu}
+Lewis, S., Hempel, T., Jim{\'e}nez-Luna, J., Gastegger, M., Xie, Y., Foong, A. Y.~K., Satorras, V.~G., Abdin, O., Veeling, B.~S., Zaporozhets, I., Chen, Y., Yang, S., Schneuing, A., Nigam, J., Barbero, F., Stimper, V., Campbell, A., Yim, J., Lienen, M., Shi, Y., Zheng, S., Schulz, H., Munir, U., Tomioka, R., Clementi, C., and No{\'e}, F.
+\newblock Scalable emulation of protein equilibrium ensembles with generative deep learning.
+\newblock \emph{bioRxiv}, 2025.
+\newblock \doi{10.1101/2024.12.05.626885}.
+\newblock URL \url{https://www.biorxiv.org/content/early/2025/02/25/2024.12.05.626885}.
+
+\bibitem[Solà et~al.(2021)Solà, Deray, and Atchuthan]{micro_lie_theory}
+Solà, J., Deray, J., and Atchuthan, D.
+\newblock A micro lie theory for state estimation in robotics, 2021.
+\newblock URL \url{https://arxiv.org/abs/1812.01537}.
+
+\bibitem[Song et~al.(2021)Song, Sohl-Dickstein, Kingma, Kumar, Ermon, and Poole]{score_based_diffusion}
+Song, Y., Sohl-Dickstein, J., Kingma, D.~P., Kumar, A., Ermon, S., and Poole, B.
+\newblock Score-based generative modeling through stochastic differential equations.
+\newblock In \emph{International Conference on Learning Representations}, 2021.
+\newblock URL \url{https://openreview.net/forum?id=PxTIG12RRHS}.
+
+\bibitem[Yim et~al.(2023)Yim, Trippe, De~Bortoli, Mathieu, Doucet, Barzilay, and Jaakkola]{se3_diffusion}
+Yim, J., Trippe, B.~L., De~Bortoli, V., Mathieu, E., Doucet, A., Barzilay, R., and Jaakkola, T.
+\newblock Se(3) diffusion model with application to protein backbone generation.
+\newblock In \emph{Proceedings of the 40th International Conference on Machine Learning}, ICML'23. JMLR.org, 2023.
+
+\end{thebibliography}
