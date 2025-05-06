@@ -207,8 +207,8 @@ def compute_ev_loss(
 
     # Compute the importance sample estimator
     # Note second term is a debiaser
-    # loss_weights = torch.sum((h_weights_mean - weights) ** 2 - h_weights_var / B)
-    loss_weights = torch.sum((h_weights_mean - weights) ** 2)
+    loss_weights = torch.sum((h_weights_mean - weights) ** 2 - h_weights_var / B)
+    # loss_weights = torch.sum((h_weights_mean - weights) ** 2)
 
     # TODO: Include mus and sigmas in the loss
     loss_ev = loss_weights
@@ -230,8 +230,11 @@ def compute_kl_loss(
     dts = torch.diff(t_vals)  # (T,)
 
     # Integrate from t=1 to t=0 i.e., reverse time
-    w_int_u_sq_dt = torch.einsum("b...,tb...i,tb...i,t->b...", ws, us, us, -dts)  # (B,)
-    loss_kl = torch.mean(w_int_u_sq_dt) / 2
+    weighted_kl = torch.einsum("b...,tb...i,tb...i,t->b...", ws, us, us, -dts)  # (B,)
+    B = weighted_kl.shape[0]
+    baseline = (weighted_kl.sum() - weighted_kl) / (B - 1)
+    loss_kl = torch.mean(weighted_kl - baseline.detach()) / 2
+    # loss_kl = torch.mean(weighted_kl) / 2
 
     return loss_kl
 
