@@ -52,7 +52,7 @@ class ScoreNet(nn.Module):
         t_emb = self.time_embed(t)  # (batch, time_embed_dim)
         # Concatenate along the feature dimension.
         x = torch.cat(
-            [rot_emb, t_emb], dim=-1
+            torch.broadcast_tensors(rot_emb, t_emb), dim=-1
         )  # (batch, rot_embed_dim + time_embed_dim)
         # Compute the score prediction.
         score_pred = self.net(x)
@@ -102,7 +102,9 @@ class SO3EquivScoreNet(nn.Module):
         # Embed time
         t_emb = self.time_embed(t)  # (batch, time_embed_dim)
         # Concatenate magnitude (invariant) and time embedding
-        features = torch.cat([mag, t_emb], dim=-1)  # (batch, 1+time_embed_dim)
+        features = torch.cat(
+            torch.broadcast_tensors(mag, t_emb), dim=-1
+        )  # (batch, 1+time_embed_dim)
         # Predict scalar multiplier alpha
         alpha = self.scalar_net(features)  # (batch, 1)
         # Equivariant output: scale original vector

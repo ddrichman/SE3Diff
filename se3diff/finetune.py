@@ -35,8 +35,8 @@ class EulerMaruyamaPredictorFinetune(EulerMaruyamaPredictor):
         )
         drift, diffusion = self.corruption.sde(x=x, t=t, batch_idx=batch_idx)
         drift = drift - diffusion**2 * score * score_weight
-        if u is not None:
-            drift = drift + diffusion * u * score_weight
+        drift = drift + diffusion * u * score_weight
+
         return drift, diffusion
 
     def update_given_drift_and_diffusion_with_noise(
@@ -100,7 +100,7 @@ def reverse_finetune_diffusion(
 
     sde.to(device)
     score_model.to(device).eval()
-    finetune_model.to(device)  # should not be in eval mode
+    finetune_model.to(device)  # need not be in eval mode
 
     x_t = sde.prior_sampling((batch_size, 3, 3), device=device)
     predictor = EulerMaruyamaPredictorFinetune(
@@ -109,10 +109,9 @@ def reverse_finetune_diffusion(
     dt = -1.0 / torch.tensor(num_steps, device=device)
     t_vals = torch.linspace(1.0, 0.0, num_steps + 1, device=device)
 
-    xs = torch.empty((num_steps + 1, batch_size, 3, 3), device=device)
-    xs[0] = x_t
-    dWs = torch.empty((num_steps, batch_size, 3), device=device)
-    us = torch.empty((num_steps, batch_size, 3), device=device)
+    xs_list = [x_t]
+    dWs_list = []
+    us_list = []
 
     for i in trange(num_steps, desc="Reverse diffusion", leave=False):
         t_val = t_vals[i].item()
@@ -122,16 +121,19 @@ def reverse_finetune_diffusion(
         with torch.no_grad():
             score = _get_so3_score(X_t, sde, score_model, t)  # (B,3)
 
-        # Should be with grad
+        # may not with torch.no_grad()
         u_t = finetune_model(X_t, t)  # (B,3)
 
         x_t, _, dW_t = predictor.update_given_finetune_score(
             u_t, x=x_t, t=t, dt=dt, batch_idx=None, score=score  # type: ignore
         )
-        xs[i + 1] = x_t
+        xs_list.append(x_t)
+        dWs_list.append(dW_t)
+        us_list.append(u_t)
 
-        us[i] = u_t
-        dWs[i] = dW_t
+    xs = torch.stack(xs_list, dim=0)  # (T+1,B,3,3)
+    dWs = torch.stack(dWs_list, dim=0)  # (T,B,3)
+    us = torch.stack(us_list, dim=0)  # (T,B,3)
 
     return xs, t_vals, us, dWs
 
@@ -205,7 +207,8 @@ def compute_ev_loss(
 
     # Compute the importance sample estimator
     # Note second term is a debiaser
-    loss_weights = torch.sum((h_weights_mean - weights) ** 2 - h_weights_var / B)
+    # loss_weights = torch.sum((h_weights_mean - weights) ** 2 - h_weights_var / B)
+    loss_weights = torch.sum((h_weights_mean - weights) ** 2)
 
     # TODO: Include mus and sigmas in the loss
     loss_ev = loss_weights
@@ -241,26 +244,41 @@ def compute_finetune_loss(
     sigmas: torch.Tensor,
     weights: torch.Tensor,
     device: DeviceLikeType | None = None,
-    lambda_: float = 0.1,
+    lambda_: float = 0.2,
     batch_size: int = 4096,
     num_steps: int = 200,
     l_max: int = 1000,
     tol: float = 1e-7,
 ) -> torch.Tensor:
 
-    xs, t_vals, us, dWs = reverse_finetune_diffusion(
-        sde,
-        score_model,
-        finetune_model,
-        device=device,
-        batch_size=batch_size,
-        num_steps=num_steps,
-    )
+    # xs, t_vals, us, dWs = reverse_finetune_diffusion(
+    #     sde,
+    #     score_model,
+    #     finetune_model,
+    #     device=device,
+    #     batch_size=batch_size,
+    #     num_steps=num_steps,
+    # )
+
+    with torch.no_grad():
+        xs, t_vals, _, dWs = reverse_finetune_diffusion(
+            sde,
+            score_model,
+            finetune_model,
+            device=device,
+            batch_size=batch_size,
+            num_steps=num_steps,
+        )
+    Xs = rotmat_to_rotvec(xs)  # (T+1,B,3)
+    us = finetune_model(Xs[:-1], t_vals[:-1].unsqueeze(-1))  # (T+1,B,3)
 
     probs = assign_igso3(xs[-1], mus, sigmas, weights, l_max=l_max, tol=tol)  # (B,K)
     ws = compute_importance_weights(t_vals, us, dWs)  # (B,)
-    loss_ev = compute_ev_loss(ws, probs, weights)  # (B,)
-    loss_kl = compute_kl_loss(t_vals, us, ws)  # (B,)
+    # ws = torch.ones_like(ws)
+    loss_ev = compute_ev_loss(ws, probs, weights)
+    print("loss_ev", loss_ev.item())
+    loss_kl = compute_kl_loss(t_vals, us, ws)
+    print("loss_kl", loss_kl.item())
     loss = loss_ev + lambda_ * loss_kl
 
     return loss

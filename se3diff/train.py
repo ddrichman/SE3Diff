@@ -54,8 +54,7 @@ def reverse_diffusion(
     dt = -1.0 / torch.tensor(num_steps, device=device)
     t_vals = torch.linspace(1.0, 0.0, num_steps + 1, device=device)
 
-    xs = torch.empty((num_steps + 1, batch_size, 3, 3), device=device)
-    xs[0] = x_t
+    xs_list = [x_t]
 
     for i in trange(num_steps, desc="Reverse diffusion", leave=False):
         t_val = t_vals[i].item()
@@ -68,7 +67,9 @@ def reverse_diffusion(
         x_t, _ = predictor.update_given_score(
             x=x_t, t=t, dt=dt, batch_idx=None, score=score  # type: ignore
         )
-        xs[i + 1] = x_t  # type: ignore
+        xs_list.append(x_t)  # type: ignore
+
+    xs = torch.stack(xs_list, dim=0)  # (T+1,B,3,3)
 
     return xs, t_vals
 
