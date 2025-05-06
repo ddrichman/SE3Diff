@@ -201,14 +201,27 @@ def compute_ev_loss(
     """
 
     B = ws.shape[0]
-    h_weights = ws.unsqueeze(-1) * probs  # (B,K)
+    h_weights = probs  # (B,K)
+    # h_weights = ws.unsqueeze(-1) * probs  # (B,K)
     h_weights_mean = torch.mean(h_weights, dim=0)  # (K,)
-    h_weights_var = torch.var(h_weights, dim=0)
+    # h_weights_var = torch.var(h_weights, dim=0)
 
     # Compute the importance sample estimator
     # Note second term is a debiaser
-    loss_weights = torch.sum((h_weights_mean - weights) ** 2 - h_weights_var / B)
+    # loss_weights = torch.sum((h_weights_mean - weights) ** 2 - h_weights_var / B)
     # loss_weights = torch.sum((h_weights_mean - weights) ** 2)
+    loss_weights = torch.sum(
+        torch.mean(
+            ws.unsqueeze(-1)
+            * (
+                2 * B / (B - 1) * h_weights_mean.detach() * h_weights
+                - 2 * weights * h_weights
+                - h_weights**2 / (B - 1)
+                + weights**2
+            ),  # (B,K)
+            dim=0,
+        )  # (K,)
+    )
 
     # TODO: Include mus and sigmas in the loss
     loss_ev = loss_weights
