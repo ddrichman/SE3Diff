@@ -201,27 +201,14 @@ def compute_ev_loss(
     """
 
     B = ws.shape[0]
-    h_weights = probs  # (B,K)
-    # h_weights = ws.unsqueeze(-1) * probs  # (B,K)
+    h_weights = ws.unsqueeze(-1) * probs  # (B,K)
     h_weights_mean = torch.mean(h_weights, dim=0)  # (K,)
-    # h_weights_var = torch.var(h_weights, dim=0)
+    h_weights_var = torch.var(h_weights, dim=0)
 
     # Compute the importance sample estimator
     # Note second term is a debiaser
-    # loss_weights = torch.sum((h_weights_mean - weights) ** 2 - h_weights_var / B)
+    loss_weights = torch.sum((h_weights_mean - weights) ** 2 - h_weights_var / B)
     # loss_weights = torch.sum((h_weights_mean - weights) ** 2)
-    loss_weights = torch.sum(
-        torch.mean(
-            ws.unsqueeze(-1)
-            * (
-                2 * B / (B - 1) * h_weights_mean.detach() * h_weights
-                - 2 * weights * h_weights
-                - h_weights**2 / (B - 1)
-                + weights**2
-            ),  # (B,K)
-            dim=0,
-        )  # (K,)
-    )
 
     # TODO: Include mus and sigmas in the loss
     loss_ev = loss_weights
@@ -267,15 +254,6 @@ def compute_finetune_loss(
     tol: float = 1e-7,
 ) -> torch.Tensor:
 
-    # xs, t_vals, us, dWs = reverse_finetune_diffusion(
-    #     sde,
-    #     score_model,
-    #     finetune_model,
-    #     device=device,
-    #     batch_size=batch_size,
-    #     num_steps=num_steps,
-    # )
-
     with torch.no_grad():
         xs, t_vals, _, dWs = reverse_finetune_diffusion(
             sde,
@@ -290,11 +268,8 @@ def compute_finetune_loss(
 
     probs = assign_igso3(xs[-1], mus, sigmas, weights, l_max=l_max, tol=tol)  # (B,K)
     ws = compute_importance_weights(t_vals, us, dWs)  # (B,)
-    # ws = torch.ones_like(ws)
     loss_ev = compute_ev_loss(ws, probs, weights)
-    print("loss_ev", loss_ev.item())
     loss_kl = compute_kl_loss(t_vals, us, ws)
-    print("loss_kl", loss_kl.item())
     loss = loss_ev + lambda_ * loss_kl
 
     return loss
