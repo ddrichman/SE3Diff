@@ -20,7 +20,7 @@ from se3diff.train import _get_so3_score, igso3_expansion
 
 class EulerMaruyamaPredictorFinetune(EulerMaruyamaPredictor):
 
-    def reverse_drift_and_diffusion_with_finetune(
+    def reverse_drift_and_diffusion_with_controller(
         self,
         u: torch.Tensor,
         *,
@@ -75,7 +75,7 @@ class EulerMaruyamaPredictorFinetune(EulerMaruyamaPredictor):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
         # Set up different coefficients and terms.
-        drift, diffusion = self.reverse_drift_and_diffusion_with_finetune(
+        drift, diffusion = self.reverse_drift_and_diffusion_with_controller(
             u=u, x=x, t=t, batch_idx=batch_idx, score=score
         )
 
