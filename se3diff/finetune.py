@@ -189,7 +189,7 @@ def compute_importance_weights(
 
 
 def compute_ev_loss(
-    ws: torch.Tensor, probs: torch.Tensor, weights: torch.Tensor
+    ws: torch.Tensor, probs: torch.Tensor, weights: torch.Tensor, tol: float = 1e-7
 ) -> torch.Tensor:
     """Compute the expected value loss for the fine-tuning process.
     Args:
@@ -201,17 +201,24 @@ def compute_ev_loss(
     """
 
     B = ws.shape[0]
-    h_weights = ws.unsqueeze(-1) * probs  # (B,K)
-    h_weights_mean = torch.mean(h_weights, dim=0)  # (K,)
-    h_weights_var = torch.var(h_weights, dim=0)
+    h_weights = ws.unsqueeze(1) * (probs - weights)  # (B,K)
+    # h_weights = ws.unsqueeze(1) * probs - weights  # (B,K)
+
+    pbar = torch.mean(probs.detach(), dim=0)  # detach in case track grad
+    # stab = torch.sum(pbar, dim=0) / (pbar + tol)  # (K,)
+    stab = torch.ones_like(pbar)
+    stab = stab / torch.mean(stab)  # (K,)
 
     # Compute the importance sample estimator
-    # Note second term is a debiaser
-    loss_weights = torch.sum((h_weights_mean - weights) ** 2 - h_weights_var / B)
-    # loss_weights = torch.sum((h_weights_mean - weights) ** 2)
+    # (\sum_{i\neq j} h_i h_j) / (B(B-1))
+    loss_weights = (
+        (torch.sum(h_weights, dim=0) ** 2 - torch.sum(h_weights**2, dim=0))
+        * stab
+        / (B * (B - 1))
+    )
 
     # TODO: Include mus and sigmas in the loss
-    loss_ev = loss_weights
+    loss_ev = torch.sum(loss_weights)
 
     return loss_ev
 
@@ -233,7 +240,9 @@ def compute_kl_loss(
     weighted_kl = torch.einsum("b...,tb...i,tb...i,t->b...", ws, us, us, -dts)  # (B,)
     B = weighted_kl.shape[0]
     baseline = (weighted_kl.sum() - weighted_kl) / (B - 1)
-    loss_kl = torch.mean(weighted_kl - baseline.detach()) / 2
+    loss_kl = (
+        torch.mean(weighted_kl - baseline.detach()) / 2
+    )  # TODO: figure out the use of rloo
     # loss_kl = torch.mean(weighted_kl) / 2
 
     return loss_kl
@@ -247,7 +256,7 @@ def compute_finetune_loss(
     sigmas: torch.Tensor,
     weights: torch.Tensor,
     device: DeviceLikeType | None = None,
-    lambda_: float = 0.2,
+    lambda_: float = 0.1,
     batch_size: int = 4096,
     num_steps: int = 200,
     l_max: int = 1000,
@@ -263,12 +272,21 @@ def compute_finetune_loss(
             batch_size=batch_size,
             num_steps=num_steps,
         )
+
     Xs = rotmat_to_rotvec(xs)  # (T+1,B,3)
     us = finetune_model(Xs[:-1], t_vals[:-1].unsqueeze(-1))  # (T+1,B,3)
+    # us_list = []
+    # for i in trange(num_steps, desc="Reverse diffusion", leave=False):
+    #     t_val = t_vals[i].item()
+    #     t = torch.full((batch_size,), t_val, device=device)
+    #     X_t = Xs[i]  # (B,3)
+    #     u_t = finetune_model(X_t, t)  # (B,3)
+    #     us_list.append(u_t)
+    # us = torch.stack(us_list, dim=0)  # (T,B,3)
 
     probs = assign_igso3(xs[-1], mus, sigmas, weights, l_max=l_max, tol=tol)  # (B,K)
     ws = compute_importance_weights(t_vals, us, dWs)  # (B,)
-    loss_ev = compute_ev_loss(ws, probs, weights)
+    loss_ev = compute_ev_loss(ws, probs, weights, tol=tol)
     loss_kl = compute_kl_loss(t_vals, us, ws)
     loss = loss_ev + lambda_ * loss_kl
 
