@@ -6,9 +6,9 @@ import numpy as np
 import torch
 from torch_geometric.data.batch import Batch
 
-from .chemgraph import ChemGraph
-from .sde_lib import SDE, CosineVPSDE
-from .so3_sde import SO3SDE, apply_rotvec_to_rotmat
+from bioemu.chemgraph import ChemGraph
+from bioemu.sde_lib import SDE, CosineVPSDE
+from bioemu.so3_sde import SO3SDE, apply_rotvec_to_rotmat
 
 TwoBatches = tuple[Batch, Batch]
 
@@ -257,6 +257,7 @@ def _t_from_lambda(sde: CosineVPSDE, lambda_t: torch.Tensor) -> torch.Tensor:
 
 
 def dpm_solver(
+    *,
     sdes: dict[str, SDE],
     batch: Batch,
     N: int,
@@ -265,7 +266,6 @@ def dpm_solver(
     eps_t: float,
     device: torch.device,
 ) -> tuple[ChemGraph, ChemGraph, list[ChemGraph] | None, list[ChemGraph] | None]:
-
     """
     Implements the DPM solver for the VPSDE, with the Cosine noise schedule.
     Following this paper: https://arxiv.org/abs/2206.00927 Algorithm 1 DPM-Solver-2.
@@ -310,7 +310,7 @@ def dpm_solver(
         )
         lambda_t_next = torch.log(alpha_t_next / sigma_t_next)
 
-        # t+dt < t, lambad_t_next > lambda_t
+        # t+dt < t, lambda_t_next > lambda_t
         h_t = lambda_t_next - lambda_t
 
         # For a given noise schedule (cosine is what we use), compute the intermediate t_lambda

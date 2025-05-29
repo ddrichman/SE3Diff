@@ -15,40 +15,39 @@ import torch
 from torch._prims_common import DeviceLikeType
 
 
-def _broadcast_like(x, like):
+def _broadcast_like(x: torch.Tensor, like: torch.Tensor | None) -> torch.Tensor:
     """
     add broadcast dimensions to x so that it can be broadcast over ``like``
     """
-    if like is None:
-        return x
-    return x[(...,) + (None,) * (like.ndim - x.ndim)]
+
+    return x if like is None else x[(...,) + (None,) * (like.ndim - x.ndim)]
 
 
 def maybe_expand(
-    x: torch.Tensor, batch: torch.LongTensor | None, like: torch.Tensor = None
+    x: torch.Tensor, batch_idx: torch.LongTensor | None = None, like: torch.Tensor | None = None
 ) -> torch.Tensor:
     """
 
     Args:
         x: shape (batch_size, ...)
-        batch: shape (num_thingies,) with integer entries in the range [0, batch_size), indicating which sample each thingy belongs to
+        batch_idx: shape (num_thingies,) with integer entries in the range [0, batch_size), indicating which sample each thingy belongs to
         like: shape x.shape + potential additional dimensions
     Returns:
         expanded x with shape (num_thingies,), or if given like.shape, containing value of x for each thingy.
-        If `batch` is None, just returns `x` unmodified, to avoid pointless work if you have exactly one thingy per sample.
+        If `batch_idx` is None, just returns `x` unmodified, to avoid pointless work if you have exactly one thingy per sample.
     """
     x = _broadcast_like(x, like)
-    if batch is None:
+    if batch_idx is None:
         return x
-    else:
-        if x.shape[0] == batch.shape[0]:
-            logging.warning(
-                "Warning: batch shape is == x shape, are you trying to expand something that is already expanded?"
-            )
-        return x[batch]
+    if x.shape[0] == batch_idx.shape[0]:
+        logging.warning(
+            "Warning: batch shape is == x shape, are you trying to expand something that is already expanded?"
+        )
+
+    return x[batch_idx]
 
 
-class SDE:
+class SDE(abc.ABC):
     """Corruption using a stochastic differential equation."""
 
     @abc.abstractmethod
@@ -56,7 +55,7 @@ class SDE:
         self, x: torch.Tensor, t: torch.Tensor, batch_idx: torch.LongTensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Returns drift f and diffusion coefficient g such that dx = f * dt + g * sqrt(dt) * standard Gaussian"""
-        pass  # drift: (nodes_per_sample * batch_size, num_features), diffusion (batch_size,)
+        ...  # drift: (nodes_per_sample * batch_size, num_features), diffusion (batch_size,)
 
     @property
     def T(self) -> float:
@@ -70,7 +69,7 @@ class SDE:
         batch_idx: torch.LongTensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Returns mean and standard deviation of the marginal distribution of the SDE, $p_t(x)$."""
-        pass  # mean: (nodes_per_sample * batch_size, num_features), std: (nodes_per_sample * batch_size, 1)
+        ...  # mean: (nodes_per_sample * batch_size, num_features), std: (nodes_per_sample * batch_size, 1)
 
     def mean_coeff_and_std(
         self, x: torch.Tensor, t: torch.Tensor, batch_idx: torch.LongTensor | None = None
@@ -95,12 +94,12 @@ class SDE:
 
         return mean + std * z
 
+    @abc.abstractmethod
     def prior_sampling(
         self,
         shape: torch.Size | tuple,
         device: DeviceLikeType | None = None,
-    ) -> torch.Tensor:
-        raise NotImplementedError
+    ) -> torch.Tensor: ...
 
 
 class BaseVPSDE(SDE):
@@ -112,8 +111,7 @@ class BaseVPSDE(SDE):
     """
 
     @abc.abstractmethod
-    def beta(self, t: torch.Tensor) -> torch.Tensor:
-        ...
+    def beta(self, t: torch.Tensor) -> torch.Tensor: ...
 
     @abc.abstractmethod
     def _marginal_mean_coeff(self, t: torch.Tensor) -> torch.Tensor:
@@ -129,10 +127,8 @@ class BaseVPSDE(SDE):
         mean_coeff = self._marginal_mean_coeff(t)
         mean = maybe_expand(mean_coeff, batch_idx, x) * x
         std = maybe_expand(torch.sqrt(1.0 - mean_coeff**2), batch_idx, x)
-        return mean, std
 
-    def sigma(self, t: torch.Tensor):
-        return self.marginal_prob(t, t)[1]
+        return mean, std
 
     def prior_sampling(
         self,
@@ -150,6 +146,7 @@ class BaseVPSDE(SDE):
         beta_t = self.beta(t)
         drift = -0.5 * maybe_expand(beta_t, batch_idx, x) * x
         diffusion = maybe_expand(torch.sqrt(beta_t), batch_idx, x)
+
         return drift, diffusion
 
 

@@ -12,7 +12,7 @@ import torch.nn as nn
 from torch._prims_common import DeviceLikeType
 from tqdm import tqdm
 
-from .sde_lib import SDE, _broadcast_like, maybe_expand
+from bioemu.sde_lib import SDE, _broadcast_like, maybe_expand
 
 logger = logging.getLogger(__name__)
 
@@ -1761,16 +1761,16 @@ def igso3_expansion(
     l_fac_2 = -l_grid * (l_grid + 1.0)
 
     # Pre-compute numerator of expansion which only depends on angles.
-    numerator_sin = torch.sin((l_grid[None, :] + 1 / 2) * omega[:, None])
+    numerator_sin = torch.sin((l_grid + 1 / 2) * omega.unsqueeze(-1))
 
     # Pre-compute exponential term with (2l+1) prefactor.
-    exponential_term = l_fac_1[None, :] * torch.exp(l_fac_2[None, :] * sigma[:, None] ** 2 / 2)
+    exponential_term = l_fac_1 * torch.exp(l_fac_2 * sigma.unsqueeze(-1) ** 2 / 2)
 
     # Compute series expansion
-    f_igso = torch.sum(exponential_term * numerator_sin, dim=1)
+    f_igso = torch.sum(exponential_term * numerator_sin, dim=-1)
     # For small omega, accumulate limit of sine fraction instead:
     # lim[x->0] sin((l+1/2)x) / sin(x/2) = 2l + 1
-    f_limw = torch.sum(exponential_term * l_fac_1[None, :], dim=1)
+    f_limw = torch.sum(exponential_term * l_fac_1, dim=-1)
 
     # Finalize expansion. Offset for stability can be added since omega is [0,pi] and sin(omega/2)
     # is positive in this interval.
@@ -1781,8 +1781,13 @@ def igso3_expansion(
 
     # Remove remaining numerical problems
     f_igso = torch.where(
-        torch.logical_or(torch.isinf(f_igso), torch.isnan(f_igso)), torch.zeros_like(f_igso), f_igso
+        torch.logical_or(torch.isinf(f_igso), torch.isnan(f_igso)),
+        torch.zeros_like(f_igso),
+        f_igso,
     )
+
+    # Clamp to avoid negative values
+    f_igso = torch.clamp(f_igso, min=0.0)
 
     return f_igso
 
@@ -1819,13 +1824,13 @@ def digso3_expansion(
     l_fac_3 = -l_grid * l_fac_2
 
     # Pre-compute numerator of expansion which only depends on angles.
-    numerator_sin = l_grid[None, :] * torch.sin(l_fac_2[None, :] * omega[:, None]) - l_fac_2[
-        None, :
-    ] * torch.sin(l_grid[None, :] * omega[:, None])
+    numerator_sin = l_grid * torch.sin(l_fac_2 * omega.unsqueeze(-1)) - l_fac_2 * torch.sin(
+        l_grid * omega.unsqueeze(-1)
+    )
 
     # Compute series expansion
     df_igso = torch.sum(
-        l_fac_1[None, :] * torch.exp(l_fac_3[None, :] * sigma[:, None] ** 2 / 2) * numerator_sin,
+        l_fac_1 * torch.exp(l_fac_3 * sigma.unsqueeze(-1) ** 2 / 2) * numerator_sin,
         dim=1,
     )
 
