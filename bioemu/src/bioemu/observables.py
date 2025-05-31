@@ -3,6 +3,7 @@ import torch
 import pandas as pd
 from torch.distributions import Normal
 from torch_geometric.data.batch import Batch
+from torch_geometric.utils import to_dense_adj, to_dense_batch
 
 from functools import lru_cache
 
@@ -538,3 +539,24 @@ def compute_h_for_grb2_sh3(
     h[:, 1] = (loop_rmsd < loop_folded_threshold).float()
     
     return h
+
+
+def compute_h_for_grb2_sh3_from_batch(
+    chemgraph_batch: Batch,
+    ref_path: str
+) -> torch.Tensor:
+    assert isinstance(chemgraph_batch, Batch)
+    pos = to_dense_batch(chemgraph_batch.pos, chemgraph_batch.batch_idx)
+    node_orientations = to_dense_batch(chemgraph_batch.node_orientations, chemgraph_batch.batch_idx)
+
+    return compute_h_for_grb2_sh3(pos,
+                                node_orientations,
+                                ref_path=Path(__file__).parent / '../../../structures/2vwf_trimmed_SH3.pdb')
+
+def h_star_for_grb2_sh3_from_batch(
+    sequence: List[str]
+) -> torch.Tensor:
+    ref_seqs, ref_h_star = h_star_for_grb2_sh3(Path(__file__).parent / '../../../reference_h/GRB2_SH3_high_confidence.csv')
+
+    selected_rows = [ref_seqs.index(s) for s in sequence]
+    return ref_h_star[selected_rows]
