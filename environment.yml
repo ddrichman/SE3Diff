@@ -271,4 +271,3 @@ dependencies:
       - wrapt==1.17.2
       - xxhash==3.5.0
       - yarl==1.20.0
-prefix: /home/fridrichmethod/miniconda3/envs/se3diff

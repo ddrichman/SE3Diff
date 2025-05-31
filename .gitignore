@@ -179,3 +179,5 @@ test/
 
 # files
 *.pt
+*.pth
+*.ckpt

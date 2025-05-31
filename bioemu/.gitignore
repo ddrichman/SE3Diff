@@ -131,4 +131,4 @@ cython_debug/
 # Checkpoint files
 *.pth
 *.pt
-
+*.ckpt

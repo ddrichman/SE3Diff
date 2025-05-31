@@ -12,8 +12,8 @@ export TF_FORCE_GPU_ALLOW_GROWTH="true"
 export BIOEMU_COLABFOLD_DIR=$CONDA_PREFIX
 
 # Git clone the required repositories
-git clone https://github.com/microsoft/bioemu.git
-git clone https://github.com/microsoft/bioemu-benchmarks.git
+# git clone https://github.com/microsoft/bioemu.git
+# git clone https://github.com/microsoft/bioemu-benchmarks.git
 
 # Create a conda environment for BioEMu
 # conda create -n se3diff python=3.12 --yes
