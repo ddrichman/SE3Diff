@@ -70,6 +70,26 @@ def merge_a3ms(input_paths: list[StrPath], output_path: StrPath) -> None:
                     out_handle.write(line)
 
 
+def replace_query_in_a3m(a3m_file: StrPath, new_seq: str) -> None:
+    """Replace the query sequence in an A3M file with a new sequence.
+    Args:
+        a3m_file (StrPath): Path to the original A3M file.
+        new_seq (str): The new query sequence to replace the old one.
+    """
+
+    with open(a3m_file, "r") as a3m_handle:
+        lines = a3m_handle.readlines()
+
+    if len(lines) < 2:
+        raise ValueError(f"{a3m_file} appears too short to be a valid A3M.")
+
+    # Replace the query sequence (line 2) with the new sequence
+    lines[1] = f"{new_seq}\n"
+
+    with open(a3m_file, "w") as a3m_handle:
+        a3m_handle.writelines(lines)
+
+
 def _get_colabfold_dir() -> StrPath:
     """
     Get colabfold environment folder
@@ -209,7 +229,8 @@ def get_colabfold_embeds(
                 "https://github.com/sokrypton/ColabFold?tab=readme-ov-file#generating-msas-for-large-scale-structurecomplex-predictions.\n"
                 "If your MSA is generated differently, the generated results could be different."
             )
-            msa_file = Path(msa_file).expanduser()
+            msa_file = Path(msa_file).expanduser().resolve()
+            replace_query_in_a3m(a3m_file=msa_file, new_seq=seq)
             res = run_colabfold(msa_file, res_dir, colabfold_env)
             embed_prefix = msa_file.stem
         else:
