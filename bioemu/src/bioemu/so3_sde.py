@@ -1792,6 +1792,68 @@ def igso3_expansion(
     return f_igso
 
 
+def igso3_marginal_pdf(
+    omega: torch.Tensor,
+    omega_0: torch.Tensor,
+    sigma: torch.Tensor,
+    l_grid: torch.Tensor,
+    tol: float = 1e-7,
+) -> torch.Tensor:
+    """Compute the marginal PDF of the IGSO(3) distribution.
+
+    Args:
+        omega: The angle between the two rotations.
+        omega_0: The angle between the reference rotation and the first rotation.
+        sigma: The standard deviation of the Gaussian noise.
+        l_grid: The grid of irreducible representations.
+        tol: A small tolerance value to avoid division by zero.
+    Returns:
+        The marginal PDF of the IGSO(3) distribution.
+    """
+
+    # assert omega and omega_0 are broadcastable
+
+    denom_sin_0 = torch.sin(0.5 * omega_0)
+    denom_sin = torch.sin(0.5 * omega)
+
+    l_fac_1 = 2.0 * l_grid + 1.0
+    l_fac_2 = -l_grid * (l_grid + 1.0)
+
+    # Pre-compute numerator of expansion which only depends on angles.
+    numerator_sin_0 = torch.sin((l_grid + 1 / 2) * omega_0.unsqueeze(-1))
+    numerator_sin = torch.sin((l_grid + 1 / 2) * omega.unsqueeze(-1))
+
+    exponential_term = torch.exp(l_fac_2 * sigma.unsqueeze(-1) ** 2 / 2)
+
+    # Compute series expansion
+    f_igso = torch.sum(exponential_term * numerator_sin * numerator_sin_0, dim=-1)
+    # Finalize expansion. Offset for stability can be added since omega is [0,pi] and sin(omega/2)
+    # is positive in this interval.
+    f_igso = f_igso * denom_sin / (denom_sin_0 + tol)
+
+    # For small omega, accumulate limit of sine fraction instead:
+    # lim[x->0] sin((l+1/2)x) / sin(x/2) = 2l + 1
+    f_limw = torch.sum(exponential_term * l_fac_1 * numerator_sin, dim=-1)
+    f_limw = f_limw * denom_sin
+
+    # Replace values at small omega with limit.
+    f_igso = torch.where(omega_0 <= tol, f_limw, f_igso)
+
+    # Remove remaining numerical problems
+    f_igso = torch.where(
+        torch.logical_or(torch.isinf(f_igso), torch.isnan(f_igso)),
+        torch.zeros_like(f_igso),
+        f_igso,
+    )
+
+    f_igso = f_igso * 2.0 / np.pi
+
+    # Clamp to avoid negative values
+    f_igso = torch.clamp(f_igso, min=0.0)
+
+    return f_igso
+
+
 def digso3_expansion(
     omega: torch.Tensor, sigma: torch.Tensor, l_grid: torch.Tensor, tol=1e-7
 ) -> torch.Tensor:

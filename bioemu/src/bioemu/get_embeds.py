@@ -253,10 +253,14 @@ def get_colabfold_embeds(
             res_dir,
             f"{embed_prefix}_pair_repr_evo_rank_001_alphafold2_model_3_seed_000.npy",
         )
+        pdb_tempfile = os.path.join(
+            res_dir, f"{embed_prefix}_unrelaxed_rank_001_alphafold2_model_3_seed_000.pdb"
+        )
         shutil.copy(single_rep_tempfile, single_rep_file)
         shutil.copy(pair_rep_tempfile, pair_rep_file)
         # Just to be friendly, we also keep a .fasta as a human-readable record of what sequence this is for.
         shutil.copy(fasta_file, os.path.join(cache_embeds_dir, f"{seqsha}.fasta"))
         shutil.copy(msa_file, os.path.join(cache_embeds_dir, f"{seqsha}.a3m"))
+        shutil.copy(pdb_tempfile, os.path.join(cache_embeds_dir, f"{seqsha}.pdb"))
 
     return single_rep_file, pair_rep_file
