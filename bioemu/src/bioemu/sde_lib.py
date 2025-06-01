@@ -24,7 +24,7 @@ def _broadcast_like(x: torch.Tensor, like: torch.Tensor | None) -> torch.Tensor:
 
 
 def maybe_expand(
-    x: torch.Tensor, batch_idx: torch.LongTensor | None = None, like: torch.Tensor | None = None
+    x: torch.Tensor, batch_idx: torch.Tensor | None = None, like: torch.Tensor | None = None
 ) -> torch.Tensor:
     """
 
@@ -52,7 +52,7 @@ class SDE(abc.ABC):
 
     @abc.abstractmethod
     def sde(
-        self, x: torch.Tensor, t: torch.Tensor, batch_idx: torch.LongTensor | None = None
+        self, x: torch.Tensor, t: torch.Tensor, batch_idx: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Returns drift f and diffusion coefficient g such that dx = f * dt + g * sqrt(dt) * standard Gaussian"""
         ...  # drift: (nodes_per_sample * batch_size, num_features), diffusion (batch_size,)
@@ -66,13 +66,13 @@ class SDE(abc.ABC):
         self,
         x: torch.Tensor,
         t: torch.Tensor,
-        batch_idx: torch.LongTensor | None = None,
+        batch_idx: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Returns mean and standard deviation of the marginal distribution of the SDE, $p_t(x)$."""
         ...  # mean: (nodes_per_sample * batch_size, num_features), std: (nodes_per_sample * batch_size, 1)
 
     def mean_coeff_and_std(
-        self, x: torch.Tensor, t: torch.Tensor, batch_idx: torch.LongTensor | None = None
+        self, x: torch.Tensor, t: torch.Tensor, batch_idx: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Returns mean coefficient and standard deviation of marginal distribution at time t."""
         return self.marginal_prob(
@@ -83,7 +83,7 @@ class SDE(abc.ABC):
         self,
         x: torch.Tensor,
         t: torch.Tensor,
-        batch_idx: torch.LongTensor | None = None,
+        batch_idx: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Sample marginal for x(t) given x(0).
         Returns:
@@ -122,7 +122,7 @@ class BaseVPSDE(SDE):
         self,
         x: torch.Tensor,
         t: torch.Tensor,
-        batch_idx: torch.LongTensor | None = None,
+        batch_idx: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         mean_coeff = self._marginal_mean_coeff(t)
         mean = maybe_expand(mean_coeff, batch_idx, x) * x
@@ -141,7 +141,7 @@ class BaseVPSDE(SDE):
         self,
         x: torch.Tensor,
         t: torch.Tensor,
-        batch_idx: torch.LongTensor | None = None,
+        batch_idx: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         beta_t = self.beta(t)
         drift = -0.5 * maybe_expand(beta_t, batch_idx, x) * x

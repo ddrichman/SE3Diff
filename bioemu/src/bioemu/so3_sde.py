@@ -119,7 +119,7 @@ class SO3SDE(SDE, torch.nn.Module):
         self,
         rotation_vectors: torch.Tensor,
         t: torch.Tensor,
-        batch_idx: torch.LongTensor | None = None,
+        batch_idx: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Compute current SO(3) score in vector representation (so(3)) given the rotation vectors
@@ -128,7 +128,7 @@ class SO3SDE(SDE, torch.nn.Module):
         Args:
             rotation_vectors: Perturbation in vector form.
             t (torch.Tensor): Tensor of integration times.
-            batch_idx (torch.LongTensor | None, optional): Index of batch assignments for sparse representations.
+            batch_idx (torch.Tensor | None, optional): Index of batch assignments for sparse representations.
               Defaults to None
 
         Returns:
@@ -142,7 +142,7 @@ class SO3SDE(SDE, torch.nn.Module):
     def get_score_scaling(
         self,
         t: torch.Tensor,
-        batch_idx: torch.LongTensor | None = None,
+        batch_idx: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Get the scaling of the SO(3) score in the loss function given the current perturbation time.
@@ -171,7 +171,7 @@ class SO3SDE(SDE, torch.nn.Module):
         ...
 
     def sde(
-        self, x: torch.Tensor, t: torch.Tensor, batch_idx: torch.LongTensor | None = None
+        self, x: torch.Tensor, t: torch.Tensor, batch_idx: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Differential equation corresponding to the process. The SO(3) diffusion has no drift. Care
@@ -194,7 +194,7 @@ class SO3SDE(SDE, torch.nn.Module):
         return drift, diffusion
 
     def mean_coeff_and_std(
-        self, x: torch.Tensor, t: torch.Tensor, batch_idx: torch.LongTensor | None = None
+        self, x: torch.Tensor, t: torch.Tensor, batch_idx: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Returns mean coefficient and standard deviation of marginal distribution at time t."""
         mean, std = self.marginal_prob(
@@ -248,7 +248,7 @@ class SO3SDE(SDE, torch.nn.Module):
 
     @torch.no_grad()
     def sample_marginal(
-        self, x: torch.Tensor, t: torch.Tensor, batch_idx: torch.LongTensor | None = None
+        self, x: torch.Tensor, t: torch.Tensor, batch_idx: torch.Tensor | None = None
     ) -> torch.Tensor:
         """
         Sample marginal for x(t) given x(0). For the IGSO(3) distribution, a sample with mean $\\mu$
@@ -379,7 +379,7 @@ class DiGSO3SDE(SO3SDE):
         return sigma
 
     def marginal_prob(
-        self, x: torch.Tensor, t: torch.Tensor, batch_idx: torch.LongTensor | None = None
+        self, x: torch.Tensor, t: torch.Tensor, batch_idx: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Compute distribution parameters for the marginal SO(3) sampling process.
