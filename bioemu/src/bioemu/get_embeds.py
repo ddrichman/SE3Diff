@@ -1,5 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
+import glob
 import hashlib
 import logging
 import os
@@ -41,9 +42,32 @@ def write_fasta(seqs: list[str], fasta_file: StrPath, ids: list[str] | None = No
     if ids is None:
         ids = list(range(len(seqs)))  # type: ignore
 
-    seq_records = [SeqRecord(seq=Seq(seq), id=str(_id)) for _id, seq in zip(ids, seqs)]
+    seq_records = [SeqRecord(seq=Seq(seq), id=str(_id)) for _id, seq in zip(ids, seqs)]  # type: ignore
     with open(fasta_file, "w") as fasta_handle:
         SeqIO.write(seq_records, fasta_handle, format="fasta")
+
+
+def merge_a3ms(input_paths: list[StrPath], output_path: StrPath) -> None:
+    """
+    Merge multiple A3M files for the same query into a single A3M.
+
+    Steps:
+      1) Write the first file in its entirety (query header + sequence + hits).
+      2) For each subsequent file, skip its first two lines (query header + sequence)
+         and append the remainder (all hit-alignment lines) to `output_path`.
+    """
+
+    with open(output_path, "w") as out_handle:
+        # 1) Copy the first A3M file completely:
+        for i, a3m_file in enumerate(input_paths):
+            with open(a3m_file, "r") as handle:
+                if i > 0:
+                    # Skip the first two lines (query header + query sequence) for non-first files
+                    next(handle)
+                    next(handle)
+                # Write/append the rest of the file
+                for line in handle:
+                    out_handle.write(line)
 
 
 def _get_colabfold_dir() -> StrPath:
@@ -176,7 +200,7 @@ def get_colabfold_embeds(
     with tempfile.TemporaryDirectory() as tempdir:
         fasta_file = os.path.join(tempdir, f"{seqsha}.fasta")
         res_dir = os.path.join(tempdir, "results")
-        os.makedirs(res_dir)
+        os.makedirs(res_dir, exist_ok=True)
         write_fasta(seqs=[seq], fasta_file=fasta_file, ids=[seqsha])
         if msa_file is not None:
             logger.info(
@@ -187,10 +211,14 @@ def get_colabfold_embeds(
             )
             msa_file = Path(msa_file).expanduser()
             res = run_colabfold(msa_file, res_dir, colabfold_env)
-            embed_prefix = Path(msa_file).stem
+            embed_prefix = msa_file.stem
         else:
             res = run_colabfold(fasta_file, res_dir, colabfold_env, msa_host_url)
             embed_prefix = f"{seqsha}__unknown_description_"
+            msa_dir = os.path.join(res_dir, f"{embed_prefix}_env")
+            msa_file = os.path.join(res_dir, f"{seqsha}.a3m")
+            a3m_list = glob.glob(os.path.join(msa_dir, "*.a3m"))
+            merge_a3ms(input_paths=a3m_list, output_path=msa_file)  # type: ignore
         if res.returncode != 0:
             raise RuntimeError(
                 f"{res.stdout.decode()}\nFailed to run colabfold_batch due to the above error."
@@ -208,5 +236,6 @@ def get_colabfold_embeds(
         shutil.copy(pair_rep_tempfile, pair_rep_file)
         # Just to be friendly, we also keep a .fasta as a human-readable record of what sequence this is for.
         shutil.copy(fasta_file, os.path.join(cache_embeds_dir, f"{seqsha}.fasta"))
+        shutil.copy(msa_file, os.path.join(cache_embeds_dir, f"{seqsha}.a3m"))
 
     return single_rep_file, pair_rep_file

@@ -1,6 +1,6 @@
 _target_: bioemu.shortcuts.heun_denoiser_finetune
 _partial_: true
-eps_t: 0.001
 num_steps: 100
 max_t: 0.99
+eps_t: 0.001
 noise: 0.5

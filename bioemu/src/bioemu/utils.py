@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import ParamSpec, TypeVar
 
 import stackprinter
+import torch
 
 
 def format_npz_samples_filename(start_id: int, num_samples: int) -> str:
@@ -62,3 +63,23 @@ def print_traceback_on_exception(func: Callable[P, T]) -> Callable[P, T]:
             raise
 
     return with_stackprint
+
+
+def clean_gpu_cache(func: Callable[P, T]) -> Callable[P, T]:
+    """Decorator to clean GPU memory cache after the decorated function is executed."""
+
+    counter = 0
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        nonlocal counter
+        try:
+            result = func(*args, **kwargs)
+        finally:
+            # gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                counter += 1
+        return result
+
+    return wrapper

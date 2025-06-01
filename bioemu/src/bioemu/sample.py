@@ -3,7 +3,6 @@
 """Script for sampling from a trained model."""
 
 import logging
-import os
 import shutil
 import typing
 from collections.abc import Callable
@@ -65,6 +64,7 @@ class FinetuneBundle(NamedTuple):
 
 
 def load_finetune_bundle(
+    *,
     model_name: SupportedModelNamesLiteral | None = "bioemu-v1.0",
     ckpt_path: str | Path | None = None,
     finetune_ckpt_path: str | Path | None = None,
@@ -140,8 +140,8 @@ def maybe_download_checkpoint(
         if model_config_path is None:
             raise ValueError("If model_name is not specified, you must provide model_config_path.")
 
-        ckpt_path = Path(ckpt_path)
-        model_config_path = Path(model_config_path)
+        ckpt_path = Path(ckpt_path).expanduser().resolve()
+        model_config_path = Path(model_config_path).expanduser().resolve()
         if not ckpt_path.is_file():
             raise ValueError(f"Checkpoint {ckpt_path} does not exist.")
         if not model_config_path.is_file():
