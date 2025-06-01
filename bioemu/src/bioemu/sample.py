@@ -17,6 +17,7 @@ import torch
 import torch.nn as nn
 import yaml
 from huggingface_hub import hf_hub_download
+from torch._prims_common import DeviceLikeType
 from torch_geometric.data.batch import Batch
 from tqdm import tqdm
 
@@ -225,6 +226,7 @@ def generate_batch(
     score_model: nn.Module,
     denoiser: Callable,
     batch_size: int,
+    device: DeviceLikeType | None = None,
     cache_embeds_dir: str | Path | None = None,
     msa_file: str | Path | None = None,
     msa_host_url: str | None = None,
@@ -239,6 +241,7 @@ def generate_batch(
         finetune_model: Finetune model.
         denoiser: Denoiser function.
         batch_size: Batch size.
+        device: Device to use for sampling. If not set, this defaults to the current device.
         cache_embeds_dir: Directory to store MSA embeddings. If not set, this defaults to `COLABFOLD_DIR/embeds_cache`.
         msa_file: Optional path to an MSA A3M file.
         msa_host_url: MSA server URL for colabfold.
@@ -247,7 +250,6 @@ def generate_batch(
 
     if seed is not None:
         torch.manual_seed(seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     chemgraph = generate_chemgraph(
         sequence=sequence,
@@ -279,6 +281,7 @@ def generate_finetune_batch(
     finetune_model: nn.Module,
     denoiser: Callable,
     batch_size: int,
+    device: DeviceLikeType | None = None,
     cache_embeds_dir: str | Path | None = None,
     msa_file: str | Path | None = None,
     msa_host_url: str | None = None,
@@ -293,6 +296,7 @@ def generate_finetune_batch(
         finetune_model: Finetune model.
         denoiser: Denoiser function.
         batch_size: Batch size.
+        device: Device to use for sampling. If not set, this defaults to the current device.
         cache_embeds_dir: Directory to store MSA embeddings. If not set, this defaults to `COLABFOLD_DIR/embeds_cache`.
         msa_file: Optional path to an MSA A3M file.
         msa_host_url: MSA server URL for colabfold.
@@ -301,7 +305,6 @@ def generate_finetune_batch(
 
     if seed is not None:
         torch.manual_seed(seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     chemgraph = generate_chemgraph(
         sequence=sequence,
@@ -358,6 +361,8 @@ def main(
         msa_host_url: MSA server URL. If not set, this defaults to colabfold's remote server. If sequence is an a3m file, this is ignored.
         filter_samples: Filter out unphysical samples with e.g. long bond distances or steric clashes.
     """
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     output_dir = Path(output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)  # Fail fast if output_dir is non-writeable
@@ -435,6 +440,7 @@ def main(
             score_model=score_model,
             denoiser=denoiser,
             batch_size=min(batch_size, n),
+            device=device,
             cache_embeds_dir=cache_embeds_dir,
             msa_file=msa_file,
             msa_host_url=msa_host_url,
