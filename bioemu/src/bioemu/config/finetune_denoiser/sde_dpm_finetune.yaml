@@ -1,4 +1,4 @@
-_target_: bioemu.shortcuts.dpm_solver
+_target_: bioemu.shortcuts.sde_dpm_solver_finetune
 _partial_: true
 eps_t: 0.001
 max_t: 0.99
