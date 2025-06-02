@@ -1,4 +1,4 @@
-_target_: bioemu.shortcuts.heun_denoiser
+_target_: bioemu.shortcuts.heun_denoiser_finetune
 _partial_: true
 num_steps: 100
 max_t: 0.99

@@ -1,0 +1,5 @@
+_target_: bioemu.shortcuts.euler_maruyama_predictor
+_partial_: true
+num_steps: 200
+max_t: 0.99
+min_t: 0.001

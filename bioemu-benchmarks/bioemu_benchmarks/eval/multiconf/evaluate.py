@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 from glob import glob
 from itertools import combinations
-from typing import Callable
+from collections.abc import Callable
 
 import mdtraj
 import numpy as np

@@ -1,10 +1,9 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch._prims_common import DeviceLikeType
 
 from bioemu.models import SinusoidalPositionEmbedder
-from bioemu.so3_sde import DiGSO3SDE
+from bioemu.so3_sde import DiGSO3SDE, rotmat_to_rotvec
 
 
 class ScoreNet(nn.Module):
@@ -39,13 +38,15 @@ class ScoreNet(nn.Module):
                 if layer.bias is not None:
                     nn.init.zeros_(layer.bias)
 
-    def forward(self, rot_vec: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def forward(self, rot_mat: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """
         Forward pass.
-        :param rot_vec: Tensor of shape (batch, 3) representing rotation in axis-angle form.
+        :param rot_mat: Tensor of shape (batch, 3, 3) representing rotation as a rotation matrix.
         :param t: Tensor of shape (batch,) representing diffusion time.
         :return: Tensor of shape (batch, 3) with the predicted score vectors.
         """
+        # Convert rotation matrix to rotation vector.
+        rot_vec = rotmat_to_rotvec(rot_mat)  # (batch, 3)
         # Embed the rotation vector.
         rot_emb = self.rot_embed(rot_vec)  # (batch, rot_embed_dim)
         # Embed the time value.
@@ -58,57 +59,6 @@ class ScoreNet(nn.Module):
         score_pred = self.net(x)
 
         return score_pred
-
-
-class SO3EquivScoreNet(nn.Module):
-    """
-    SO(3)-equivariant score network.
-    Takes an axis-angle rotation vector `rot_vec` and timestep `t`,
-    extracts the rotation magnitude as an invariant, and outputs
-    a scaled vector preserving equivariance: f(R rot_vec R^T) = R f(rot_vec).
-    """
-
-    def __init__(
-        self,
-        time_embed_dim: int = 32,
-        hidden_dim: int = 128,
-    ):
-        super().__init__()
-        # Time embedding
-        self.time_embed = SinusoidalPositionEmbedder(time_embed_dim)
-        # MLP to predict scalar multiplier alpha(|rot_vec|, t)
-        self.scalar_net = nn.Sequential(
-            nn.Linear(1 + time_embed_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1),  # outputs alpha
-        )
-        # Initialize weights
-        for layer in self.scalar_net:
-            if isinstance(layer, nn.Linear):
-                nn.init.xavier_uniform_(layer.weight)
-                if layer.bias is not None:
-                    nn.init.zeros_(layer.bias)
-
-    def forward(self, rot_vec: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """
-        :param rot_vec: Tensor of shape (batch, 3) axis-angle vectors.
-        :param t: Tensor of shape (batch,) diffusion timesteps.
-        :return: Tensor of shape (batch, 3) predicted score vectors, equivariant under SO(3).
-        """
-        # Compute rotation magnitude |q|
-        mag = rot_vec.norm(dim=-1, keepdim=True)  # (batch, 1)
-        # Embed time
-        t_emb = self.time_embed(t)  # (batch, time_embed_dim)
-        # Concatenate magnitude (invariant) and time embedding
-        features = torch.cat(
-            torch.broadcast_tensors(mag, t_emb), dim=-1
-        )  # (batch, 1+time_embed_dim)
-        # Predict scalar multiplier alpha
-        alpha = self.scalar_net(features)  # (batch, 1)
-        # Equivariant output: scale original vector
-        return alpha * rot_vec
 
 
 class DiGMixSO3SDE(DiGSO3SDE):

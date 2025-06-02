@@ -10,10 +10,10 @@ from torch_geometric.data import Data
 
 
 class ChemGraph(Data):
+    pos: torch.Tensor  # [num_nodes, 3] score model expects this to be in nanometers.
     node_orientations: (
         torch.Tensor
     )  # [num_nodes, 3, 3] or [num_nodes, 3] when it's a score (since the scores are given as rotation vectors)
-    pos: torch.Tensor  # [num_nodes, 3] score model expects this to be in nanometers.
     edge_index: torch.Tensor  # [2, num_edges]
     single_embeds: torch.Tensor  # [num_nodes, EVOFORMER_NODE_DIM]
     pair_embeds: torch.Tensor  # [num_nodes**2, EVOFORMER_EDGE_DIM]
