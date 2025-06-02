@@ -36,91 +36,13 @@ logger = logging.getLogger(__name__)
 
 # Denoiser config
 DEFAULT_DENOISER_CONFIG_DIR = Path(__file__).parent / "config/denoiser/"
-SupportedDenoisersLiteral = Literal["dpm", "heun"]
+SupportedDenoisersLiteral = Literal["dpm", "heun", "euler_maruyama"]
 SUPPORTED_DENOISERS = list(typing.get_args(SupportedDenoisersLiteral))
-
-# Finetune denoiser config
-DEFAULT_FINETUNE_DENOISER_CONFIG_DIR = Path(__file__).parent / "config/finetune_denoiser/"
-SupportedFinetuneDenoisersLiteral = Literal["sde_dpm_finetune", "heun_finetune"]
-SUPPORTED_FINETUNE_DENOISERS = list(typing.get_args(SupportedFinetuneDenoisersLiteral))
-
-# h-function config
-DEFAULT_H_FUNC_CONFIG_DIR = Path(__file__).parent / "config/h_func/"
-SupportedHFuncsLiteral = Literal["folding_stability"]
-SUPPORTED_H_FUNCS = list(typing.get_args(SupportedHFuncsLiteral))
 
 # Model checkpoint directory
 DEFAULT_MODEL_CHECKPOINT_DIR = Path(__file__).parent / "checkpoints"
 SupportedModelNamesLiteral = Literal["bioemu-v1.0", "bioemu-rev"]
 SUPPORTED_MODEL_NAMES = list(typing.get_args(SupportedModelNamesLiteral))
-
-
-class FinetuneBundle(NamedTuple):
-    sdes: SDEs
-    score_model: DiGConditionalScoreModel
-    finetune_model: DiGConditionalScoreModel
-    denoiser: Callable
-    h_func: Callable
-
-
-def load_finetune_bundle(
-    *,
-    model_name: SupportedModelNamesLiteral | None = "bioemu-v1.0",
-    ckpt_path: str | Path | None = None,
-    finetune_ckpt_path: str | Path | None = None,
-    model_config_path: str | Path | None = None,
-    denoiser_type: SupportedFinetuneDenoisersLiteral | None = "heun_finetune",
-    denoiser_config_path: str | Path | None = None,
-    h_func_type: SupportedHFuncsLiteral | None = "folding_stability",
-    h_func_config_path: str | Path | None = None,
-    cache_so3_dir: str | Path | None = None,
-) -> FinetuneBundle:
-
-    ckpt_path, model_config_path = maybe_download_checkpoint(
-        model_name=model_name, ckpt_path=ckpt_path, model_config_path=model_config_path
-    )
-
-    with open(model_config_path) as f:
-        model_config = yaml.safe_load(f)
-
-    if cache_so3_dir is not None:
-        model_config["sdes"]["node_orientations"]["cache_dir"] = cache_so3_dir
-
-    model_state = torch.load(ckpt_path, map_location="cpu", weights_only=True)
-    score_model: DiGConditionalScoreModel = hydra.utils.instantiate(model_config["score_model"])
-    score_model.load_state_dict(model_state)
-    finetune_model: DiGConditionalScoreModel = hydra.utils.instantiate(
-        model_config.get("finetune_model", model_config["score_model"])
-    )
-    if finetune_ckpt_path is not None:
-        finetune_model.load_state_dict(
-            torch.load(finetune_ckpt_path, map_location="cpu", weights_only=True)
-        )
-    sdes: SDEs = hydra.utils.instantiate(model_config["sdes"])
-
-    if denoiser_config_path is None:
-        if denoiser_type not in SUPPORTED_FINETUNE_DENOISERS:
-            raise ValueError(f"denoiser_type must be one of {SUPPORTED_FINETUNE_DENOISERS}")
-        denoiser_config_path = DEFAULT_FINETUNE_DENOISER_CONFIG_DIR / f"{denoiser_type}.yaml"
-    with open(denoiser_config_path) as f:
-        denoiser_config = yaml.safe_load(f)
-    denoiser: Callable = hydra.utils.instantiate(denoiser_config)
-
-    if h_func_config_path is None:
-        if h_func_type not in SUPPORTED_H_FUNCS:
-            raise ValueError(f"h_func_type must be one of {SUPPORTED_H_FUNCS}")
-        h_func_config_path = DEFAULT_H_FUNC_CONFIG_DIR / f"{h_func_type}.yaml"
-    with open(h_func_config_path) as f:
-        h_func_config = yaml.safe_load(f)
-    h_func: Callable = hydra.utils.instantiate(h_func_config)
-
-    return FinetuneBundle(
-        sdes=sdes,
-        score_model=score_model,
-        finetune_model=finetune_model,
-        denoiser=denoiser,
-        h_func=h_func,
-    )
 
 
 def maybe_download_checkpoint(
@@ -325,7 +247,7 @@ def generate_finetune_batch(
 
 @print_traceback_on_exception
 def main(
-    sequence: str,
+    sequence: str | Path,
     num_samples: int,
     output_dir: str | Path,
     batch_size_100: int = 10,
@@ -344,7 +266,7 @@ def main(
     Generate samples for a specified sequence, using a trained model.
 
     Args:
-        sequence: Amino acid sequence for which to generate samples.
+        sequence: Amino acid sequence for which to generate samples or path to a FASTA or A3M file containing the sequence.
         num_samples: Number of samples to generate. If `output_dir` already contains samples, this function will only generate additional samples necessary to reach the specified `num_samples`.
         output_dir: Directory to save the samples. Each batch of samples will initially be dumped as .npz files. Once all batches are sampled, they will be converted to .xtc and .pdb.
         batch_size_100: Batch size you'd use for a sequence of length 100. The batch size will be calculated from this, assuming
