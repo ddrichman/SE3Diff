@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch._prims_common import DeviceLikeType
-from torch_geometric.data.batch import Batch
+from torch_geometric.utils import to_dense_batch
 
 from bioemu.chemgraph import ChemGraph
 from bioemu.sde_lib import SDE, CosineVPSDE
@@ -241,6 +241,149 @@ def _get_score(
     return {"node_orientations": node_orientations_score, "pos": pos_score}
 
 
+def euler_maruyama_predictor(
+    *,
+    batch: ChemGraph,
+    sdes: SDEs,
+    score_model: nn.Module,
+    num_steps: int,
+    max_t: float,
+    min_t: float,
+    device: DeviceLikeType | None = None,
+) -> ChemGraph:
+    """Sample from prior and then denoise."""
+
+    batch = batch.to(device)  # type: ignore
+    if isinstance(score_model, nn.Module):
+        # permits unit-testing with dummy model
+        score_model = score_model.to(device)
+    sdes["node_orientations"] = sdes["node_orientations"].to(device)
+
+    batch = batch.replace(
+        pos=sdes["pos"].prior_sampling(batch.pos.shape, device=device),
+        node_orientations=sdes["node_orientations"].prior_sampling(
+            batch.node_orientations.shape, device=device
+        ),
+    )
+
+    timesteps = torch.linspace(max_t, min_t, num_steps + 1, device=device)
+    dts = torch.diff(timesteps)
+    fields = list(sdes.keys())  # ["pos", "node_orientations"]
+    noisers = {
+        name: EulerMaruyamaPredictor(
+            corruption=cast(SDE, sde),
+            noise_weight=1.0,
+            marginal_concentration_factor=1.0,
+        )
+        for name, sde in sdes.items()
+    }
+
+    batch_idx = batch.batch
+
+    for i in range(num_steps):
+        # Set the timestep
+        timestep = timesteps[i].item()
+        t = torch.full((batch.num_graphs,), timestep, device=device)
+
+        score = _get_score(batch=batch, sdes=sdes, score_model=score_model, t=t)
+
+        # Apply noise.
+        vals_hat = {}
+        for field in fields:
+            vals_hat[field] = noisers[field].update_given_score(  # type: ignore
+                x=batch[field],
+                t=t,
+                dt=dts[i],
+                score=score[field],
+                batch_idx=batch_idx,
+                with_noise=True,
+            )[0]
+        batch = batch.replace(**vals_hat)
+
+    return batch
+
+
+@torch.no_grad()
+def euler_maruyama_predictor_finetune(
+    *,
+    batch: ChemGraph,
+    sdes: SDEs,
+    score_model: nn.Module,
+    finetune_model: nn.Module,
+    num_steps: int,
+    max_t: float,
+    min_t: float,
+    device: DeviceLikeType | None = None,
+) -> DenoisedSDEPath:
+    """Sample from prior and then denoise."""
+
+    batch = batch.to(device)  # type: ignore
+    if isinstance(score_model, nn.Module):
+        # permits unit-testing with dummy model
+        score_model = score_model.to(device)
+    if isinstance(finetune_model, nn.Module):
+        # permits unit-testing with dummy model
+        finetune_model = finetune_model.to(device)
+    sdes["node_orientations"] = sdes["node_orientations"].to(device)
+
+    batch = batch.replace(
+        pos=sdes["pos"].prior_sampling(batch.pos.shape, device=device),
+        node_orientations=sdes["node_orientations"].prior_sampling(
+            batch.node_orientations.shape, device=device
+        ),
+    )
+
+    timesteps = torch.linspace(max_t, min_t, num_steps + 1, device=device)
+    dts = torch.diff(timesteps)
+    fields = list(sdes.keys())  # ["pos", "node_orientations"]
+    noisers = {
+        name: EulerMaruyamaPredictor(
+            corruption=cast(SDE, sde),
+            noise_weight=1.0,
+            marginal_concentration_factor=1.0,
+        )
+        for name, sde in sdes.items()
+    }
+
+    batch_idx = batch.batch
+
+    batches = [batch]
+    dWs_list_batch = defaultdict(list)
+
+    for i in range(num_steps):
+        # Set the timestep
+        timestep = timesteps[i].item()
+        t = torch.full((batch.num_graphs,), timestep, device=device)
+
+        score = _get_score(batch=batch, sdes=sdes, score_model=score_model, t=t)
+        finetune_score = finetune_model(batch, t)
+
+        # Apply noise.
+        vals_hat = {}
+        for field in fields:
+            vals_hat[field], _, dW_t = noisers[field].update_given_score(  # type: ignore
+                x=batch[field],
+                t=t,
+                dt=dts[i],
+                score=score[field],
+                finetune_score=finetune_score[field],
+                batch_idx=batch_idx,
+                with_noise=True,
+            )
+            dWs_list_batch[field].append(to_dense_batch(dW_t, batch_idx)[0])  # (B, L, 3)
+
+        batch = batch.replace(**vals_hat)
+        batches.append(batch)
+
+    dWs_batch = {field: torch.stack(dWs_list_batch[field], dim=0) for field in fields}
+
+    return DenoisedSDEPath(
+        batches=batches,
+        timesteps=timesteps,
+        dWs_batch=dWs_batch,
+    )
+
+
 def heun_denoiser(
     *,
     batch: ChemGraph,
@@ -248,7 +391,7 @@ def heun_denoiser(
     score_model: nn.Module,
     num_steps: int,
     max_t: float,
-    eps_t: float,
+    min_t: float,
     noise: float,
     device: DeviceLikeType | None = None,
 ) -> ChemGraph:
@@ -269,9 +412,9 @@ def heun_denoiser(
 
     ts_min = 0.0
     ts_max = 1.0
-    timesteps = torch.linspace(max_t, eps_t, num_steps + 1, device=device)
+    timesteps = torch.linspace(max_t, min_t, num_steps + 1, device=device)
     dts = torch.diff(timesteps)
-    fields = list(sdes.keys())
+    fields = list(sdes.keys())  # ["pos", "node_orientations"]
     predictors = {
         name: EulerMaruyamaPredictor(
             corruption=cast(SDE, sde),
@@ -363,7 +506,7 @@ def heun_denoiser_finetune(
     finetune_model: nn.Module,
     num_steps: int,
     max_t: float,
-    eps_t: float,
+    min_t: float,
     noise: float,
     device: DeviceLikeType | None = None,
 ) -> DenoisedSDEPath:
@@ -387,9 +530,9 @@ def heun_denoiser_finetune(
 
     ts_min = 0.0
     ts_max = 1.0
-    timesteps = torch.linspace(max_t, eps_t, num_steps + 1, device=device)
+    timesteps = torch.linspace(max_t, min_t, num_steps + 1, device=device)
     dts = torch.diff(timesteps)
-    fields = list(sdes.keys())
+    fields = list(sdes.keys())  # ["pos", "node_orientations"]
     predictors = {
         name: EulerMaruyamaPredictor(
             corruption=cast(SDE, sde),
@@ -498,7 +641,7 @@ def heun_denoiser_finetune(
                 finetune_score=finetune_score[field],
                 batch_idx=batch_idx,
             )
-            dWs_list_batch[field].append(dW_t)
+            dWs_list_batch[field].append(to_dense_batch(dW_t, batch_idx)[0])  # (B, L, 3)
 
     dWs_batch = {field: torch.stack(dWs_list_batch[field], dim=0) for field in fields}
 
@@ -527,7 +670,7 @@ def dpm_solver(
     score_model: nn.Module,
     num_steps: int,
     max_t: float,
-    eps_t: float,
+    min_t: float,
     device: DeviceLikeType | None = None,
 ) -> ChemGraph:
     """
@@ -549,7 +692,7 @@ def dpm_solver(
         node_orientations=so3_sde.prior_sampling(batch.node_orientations.shape, device=device),
     )
 
-    timesteps = torch.linspace(max_t, eps_t, num_steps + 1, device=device)
+    timesteps = torch.linspace(max_t, min_t, num_steps + 1, device=device)
     dts = torch.diff(timesteps)
 
     batch_idx = batch.batch
@@ -662,13 +805,12 @@ def sde_dpm_solver_finetune(
     finetune_model: nn.Module,
     num_steps: int,
     max_t: float,
-    eps_t: float,
+    min_t: float,
     device: DeviceLikeType | None = None,
 ) -> ChemGraph:
     """
     Implements the DPM solver for the VPSDE, with the Cosine noise schedule.
-    Following this paper: https://arxiv.org/abs/2206.00927 Algorithm 1 DPM-Solver-2.
+    Following this paper: https://arxiv.org/pdf/2211.01095 SDE-DPM-Solver-2M.
     DPM solver is used only for positions, not node orientations.
     """
-    # TODO: Implement SDE DPM solver.
     ...

@@ -4,8 +4,8 @@ import torch
 def riemannian_ito_integral(fs: torch.Tensor, dWs: torch.Tensor) -> torch.Tensor:
     """Computes the Riemannian Ito integral for a given tensor field and Wiener increments.
     Args:
-        fs: Tensor of shape (T,B,D) representing the tensor field.
-        dWs: Tensor of shape (T,B,D) representing the Wiener increments.
+        fs: Tensor of shape (T, B, D) representing the tensor field.
+        dWs: Tensor of shape (T, B, D) representing the Wiener increments.
     Returns:
         Tensor of shape (B,) representing the Riemannian Ito integral.
     """
@@ -18,8 +18,8 @@ def riemannian_quadratic_covariation(
 ) -> torch.Tensor:
     """Computes the Riemannian quadratic covariation for two tensor fields.
     Args:
-        fs: Tensor of shape (T,B,D) representing the first tensor field.
-        gs: Tensor of shape (T,B,D) representing the second tensor field.
+        fs: Tensor of shape (T, B, D) representing the first tensor field.
+        gs: Tensor of shape (T, B, D) representing the second tensor field.
         dts: Tensor of shape (T,) representing the time increments.
     Returns:
         Tensor of shape (B,) representing the Riemannian quadratic covariation.
@@ -45,14 +45,14 @@ def rloo_baseline(fs: torch.Tensor) -> torch.Tensor:
 def compute_ws(*, us: torch.Tensor, dWs: torch.Tensor, dts: torch.Tensor) -> torch.Tensor:
     """Computes the importance weights for the reverse diffusion process.
     Args:
-        us: Tensor of shape (T,B,D) representing the controlled term.
-        dWs: Tensor of shape (T,B,D) representing the Wiener increments.
+        us: Tensor of shape (T, B, D) representing the controlled term.
+        dWs: Tensor of shape (T, B, D) representing the Wiener increments.
         dts: Tensor of shape (T,) representing the time increments.
     Returns:
         Tensor of shape (B,) representing the importance weights.
     """
 
-    diff = us - us.detach()  # (T,B,D)
+    diff = us - us.detach()  # (T, B, D)
 
     # Integrate from t=1 to t=0, i.e., reverse time
     int_diff_dW = riemannian_ito_integral(diff, -dWs)  # (B,)
@@ -65,8 +65,8 @@ def compute_ws(*, us: torch.Tensor, dWs: torch.Tensor, dts: torch.Tensor) -> tor
 def compute_int_dws(*, us: torch.Tensor, dWs: torch.Tensor) -> torch.Tensor:
     """Computes the importance weights for the reverse diffusion process.
     Args:
-        us: Tensor of shape (T,B,D) representing the controlled term.
-        dWs: Tensor of shape (T,B,D) representing the Wiener increments.
+        us: Tensor of shape (T, B, D) representing the controlled term.
+        dWs: Tensor of shape (T, B, D) representing the Wiener increments.
     Returns:
         Tensor of shape (B,) representing the integrated gradient of the importance weights,
         such that \nabla int_dw = \nabla w
@@ -84,15 +84,15 @@ def compute_ev_loss_from_ws(
     """Compute the expected value loss from the importance weights.
     Args:
         ws: Tensor of shape (B,) representing the importance weights.
-        hs: Tensor of shape (B,K) representing the sampled observable values.
-        h_stars: Tensor of shape (K,) or (B,K) representing the ground truth expectation values.
+        hs: Tensor of shape (B, K) representing the sampled observable values.
+        h_stars: Tensor of shape (K,) or (B, K) representing the ground truth expectation values.
     Returns:
         Tensor representing the expected value loss.
     """
 
     B = ws.shape[0]
-    weighted_hs = ws.unsqueeze(1) * (hs - h_stars)  # (B,K)
-    # weighted_hs = ws.unsqueeze(1) * hs - h_stars  # (B,K)
+    weighted_hs = ws.unsqueeze(1) * (hs - h_stars)  # (B, K)
+    # weighted_hs = ws.unsqueeze(1) * hs - h_stars  # (B, K)
 
     pbar = torch.mean(hs, dim=0)
     stab = torch.sum(pbar, dim=0) / (pbar + tol)  # (K,)
@@ -116,16 +116,16 @@ def compute_ev_loss_from_int_dws(
     """Compute the expected value loss from the integrated gradient of the importance weights.
     Args:
         int_dws: Tensor of shape (B,) representing the integrated gradient of the importance weights.
-        hs: Tensor of shape (B,K) representing the sampled observable values.
-        h_stars: Tensor of shape (K,) or (B,K) representing the ground truth expectation values.
+        hs: Tensor of shape (B, K) representing the sampled observable values.
+        h_stars: Tensor of shape (K,) or (B, K) representing the ground truth expectation values.
     Returns:
         Tensor representing the expected value loss.
     """
 
     B = int_dws.shape[0]
 
-    int_dws_ = int_dws.unsqueeze(1)  # (B,1)
-    dhs = hs - h_stars  # (B,K)
+    int_dws_ = int_dws.unsqueeze(1)  # (B, 1)
+    dhs = hs - h_stars  # (B, K)
 
     pbar = torch.mean(hs, dim=0)
     stab = torch.sum(pbar, dim=0) / (pbar + tol)  # (K,)
@@ -153,7 +153,7 @@ def compute_ev_loss_from_int_dws(
 def compute_int_u_u_dt(*, us: torch.Tensor, dts: torch.Tensor) -> torch.Tensor:
     """Compute the quadratic variation of the controlled term.
     Args:
-        us: Tensor of shape (T,B,D) representing the controlled term.
+        us: Tensor of shape (T, B, D) representing the controlled term.
         dts: Tensor of shape (T,) representing the time increments.
     Returns:
         Tensor of shape (B,) representing the integrated term.
