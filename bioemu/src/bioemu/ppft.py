@@ -127,6 +127,8 @@ def compute_ev_loss_from_int_dws(
     int_dws_ = int_dws.unsqueeze(1)  # (B, 1)
     dhs = hs - h_stars  # (B, K)
 
+    print(hs, h_stars)
+
     pbar = torch.mean(hs, dim=0)
     stab = torch.sum(pbar, dim=0) / (pbar + tol)  # (K,)
     # stab = torch.ones_like(pbar)
