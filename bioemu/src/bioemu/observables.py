@@ -15,7 +15,7 @@ from .so3_sde import SO3SDE, apply_rotvec_to_rotmat, rotmat_to_rotvec
 
 from dataclasses import dataclass
 from itertools import combinations
-from typing import Optional
+from typing import Optional, List
 
 import torch
 from Bio import pairwise2
@@ -560,3 +560,63 @@ def h_star_for_grb2_sh3_from_batch(
 
     selected_rows = [ref_seqs.index(s) for s in sequence]
     return ref_h_star[selected_rows]
+
+
+def compute_h_for_psd95_pdz3(
+    pos: torch.Tensor,
+    node_orientations: torch.Tensor,
+    ref_path: str
+) -> torch.Tensor:
+    """Compute the h function for the PSD95 PDZ3 domain.
+    """
+
+    assert pos.ndim == 3
+    assert node_orientations.ndim == 4
+
+    B = pos.shape[0]
+
+    h = torch.zeros((B, 2)) # 2 observables
+
+    ref_coords = load_ref(ref_path)
+
+    aligned_to_ref = weighted_rigid_align(
+        coords=pos,
+        ref_coords=ref_coords,
+    )
+
+    ## For folding
+    # Compute native contacts
+    reference_contact_pairs, reference_contact_distances = _compute_reference_contacts(
+        reference_coords=ref_coords * 10, # nm to A
+        sequence_separation=FNCSettings.sequence_separation,
+        contact_cutoff=FNCSettings.contact_cutoff,
+    )
+
+    samples_contact_distances = _compute_contact_distances_batch(
+        pos * 10, # nm to A
+        reference_contact_pairs
+    )
+
+    contact_score = _compute_contact_score(
+        samples_contact_distances=samples_contact_distances,
+        reference_contact_distances=reference_contact_distances,
+        contact_beta=FNCSettings.contact_beta,
+        contact_lambda=FNCSettings.contact_lambda,
+        contact_delta=FNCSettings.contact_delta,
+    )
+
+    protein_folded_q_threshold = 0.7
+    h[:, 0] = contact_score > protein_folded_q_threshold
+
+    ## For binding
+    # Compute RMSD of the loop region
+    loop_region = aligned_to_ref[:, 6:21, :]
+    loop_rmsd = torch.sqrt(
+        ((loop_region - ref_coords[6:21, :]) ** 2).sum(dim=-1).mean(dim=-1)
+    )
+    
+    # Classify as folded or unfolded based on RMSD
+    loop_folded_threshold = 0.2 # 2A = 0.2 nm threshold for folded state, based on MD sim
+    h[:, 1] = (loop_rmsd < loop_folded_threshold).float()
+    
+    return h

@@ -13,6 +13,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import yaml
+import numpy as np
 from torch._prims_common import DeviceLikeType
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -22,6 +23,7 @@ from tqdm.auto import tqdm
 
 from bioemu.denoiser import SDEs
 from bioemu.models import DiGConditionalScoreModel
+from bioemu.convert_chemgraph import save_pdb_and_xtc
 from bioemu.ppft import (
     compute_ev_loss_from_int_dws,
     compute_int_dws,
@@ -36,6 +38,12 @@ from bioemu.sample import (
 )
 from bioemu.seq_io import check_protein_valid
 from bioemu.utils import print_traceback_on_exception
+
+from bioemu.utils import (
+    count_samples_in_output_dir,
+    format_npz_samples_filename,
+    print_traceback_on_exception,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -301,8 +309,42 @@ def compute_finetune_loss(
     )
     dts = torch.diff(timesteps)
 
+    x_0 = batches.pop()
+
+    ### DDR
+    output_dir = Path('ddr_debug')
+    os.makedirs(output_dir, exist_ok=True)
+    npz_path = output_dir / format_npz_samples_filename(seed, batch_size)
+
+    data_cpu = {k: v.cpu().numpy() for k, v in x_0.items()}
+    data_cpu['pos'] = data_cpu['pos'].reshape(batch_size, -1, 3)
+    data_cpu['node_orientations'] = data_cpu['node_orientations'].reshape(batch_size, -1, 3, 3)
+
+    np.savez(npz_path, **data_cpu, sequence=sequence)
+
+    logger.info("Converting samples to .pdb and .xtc...")
+    samples_files = sorted(list(output_dir.glob("batch_*.npz")))
+    sequences = [np.load(f)["sequence"].item() for f in samples_files]
+    if set(sequences) != {sequence}:
+        raise ValueError(f"Expected all sequences to be {sequence}, but got {set(sequences)}")
+    positions = torch.tensor(np.concatenate([np.load(f)["pos"] for f in samples_files]))
+    node_orientations = torch.tensor(
+        np.concatenate([np.load(f)["node_orientations"] for f in samples_files])
+    )
+    save_pdb_and_xtc(
+        pos_nm=positions,
+        node_orientations=node_orientations,
+        topology_path=output_dir / "topology.pdb",
+        xtc_path=output_dir / "samples.xtc",
+        sequence=sequence,
+        filter_samples=False,
+    )
+    ###
+
     # Pop the last batch (x_0) to use for computing h
-    hs = h_func(batch=batches.pop(), sequence=sequence)  # (B, K)
+    hs = h_func(batch=x_0, sequence=sequence)  # (B, K)
+
+    print('****', hs)
 
     fields = list(sdes.keys())  # ["pos", "node_orientations"]
 
