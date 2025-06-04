@@ -28,10 +28,10 @@ from bioemu.denoiser import DenoisedSDEPath, SDEs
 from bioemu.models import DiGConditionalScoreModel
 from bioemu.convert_chemgraph import save_pdb_and_xtc
 from bioemu.ppft import (
-    compute_ev_loss_from_int_dws,
+    compute_ev_loss,
     compute_int_dws,
     compute_int_u_u_dt,
-    compute_kl_loss_from_int_dws,
+    compute_kl_loss,
 )
 from bioemu.sample import (
     DEFAULT_MODEL_CHECKPOINT_DIR,
@@ -354,7 +354,7 @@ def compute_finetune_loss(
     ### DDR
     output_dir = Path('ddr_debug')
     os.makedirs(output_dir, exist_ok=True)
-    npz_path = output_dir / format_npz_samples_filename(seed, batch_size)
+    npz_path = output_dir / format_npz_samples_filename(0, batch_size)
 
     data_cpu = {k: v.cpu().numpy() for k, v in batches[-1].items()}
     data_cpu['pos'] = data_cpu['pos'].reshape(batch_size, -1, 3)
@@ -365,8 +365,10 @@ def compute_finetune_loss(
     logger.info("Converting samples to .pdb and .xtc...")
     samples_files = sorted(list(output_dir.glob("batch_*.npz")))
     sequences = [np.load(f)["sequence"].item() for f in samples_files]
-    if set(sequences) != {sequence}:
-        raise ValueError(f"Expected all sequences to be {sequence}, but got {set(sequences)}")
+    # we often have multiple distinct seqs
+    #if set(sequences) != {sequence}:
+        #raise ValueError(f"Expected all sequences to be {sequence}, but got {set(sequences)}")
+
     positions = torch.tensor(np.concatenate([np.load(f)["pos"] for f in samples_files]))
     node_orientations = torch.tensor(
         np.concatenate([np.load(f)["node_orientations"] for f in samples_files])
@@ -382,7 +384,6 @@ def compute_finetune_loss(
     ###
 
     hs = h_func(batch=batches[-1], sequence=sequence)  # (B, K)
-    print('****', hs)
 
     dts = torch.diff(timesteps)
     num_steps = len(dts)
