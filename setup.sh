@@ -39,21 +39,7 @@ touch "${CONDA_PREFIX}"/.COLABFOLD_PATCHED
 cd bioemu && uv pip install -e . && cd ..
 cd bioemu-benchmarks && uv pip install -e . && cd ..
 
-# sequence: str | Path,
-# num_samples: int,
-# output_dir: str | Path,
-# batch_size_100: int = 10,
-# model_name: str | None = "bioemu-v1.0",
-# ckpt_path: str | Path | None = None,
-# model_config_path: str | Path | None = None,
-# denoiser_type: SupportedDenoisersLiteral | None = "dpm",
-# denoiser_config_path: str | Path | None = None,
-# cache_embeds_dir: str | Path | None = None,
-# cache_so3_dir: str | Path | None = None,
-# msa_host_url: str | None = None,
-# filter_samples: bool = True,
-
-# Test BioEMu
+# Test BioEmu
 python -m bioemu.sample \
     --sequence GYDPETGTWG \
     --num_samples 10 \
