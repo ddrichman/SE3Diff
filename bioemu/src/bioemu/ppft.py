@@ -37,7 +37,7 @@ def rloo_baseline(fs: torch.Tensor) -> torch.Tensor:
     """
 
     B = fs.shape[0]
-    baseline = (fs.sum(dim=0, keepdim=True) - fs) / (B - 1)  # TODO: figure out the use of rloo
+    baseline = (fs.sum(dim=0, keepdim=True) - fs) / (B - 1)  # (B,)
 
     return baseline
 
@@ -174,14 +174,10 @@ def compute_kl_loss_from_ws(*, int_u_u_dt: torch.Tensor, ws: torch.Tensor) -> to
     """
 
     # Integrate from t=1 to t=0 i.e., reverse time
-    w_int_u_u_dt = ws * int_u_u_dt  # (B,)
-
-    # Compute the rloo baseline
-    baseline = rloo_baseline(w_int_u_u_dt)  # (B,)
+    w_int_u_u_dt = ws * (int_u_u_dt - rloo_baseline(int_u_u_dt).detach())  # (B,)
 
     # Compute the KL divergence loss
-    loss_kl = torch.mean(w_int_u_u_dt - baseline.detach()) / 2
-    # loss_kl = torch.mean(w_int_u_u_dt) / 2
+    loss_kl = torch.mean(w_int_u_u_dt) / 2
 
     return loss_kl
 
@@ -198,13 +194,9 @@ def compute_kl_loss_from_int_dws(
     """
 
     # Integrate from t=1 to t=0 i.e., reverse time
-    w_int_u_u_dt = int_u_u_dt + int_u_u_dt.detach() * int_dws  # (B,)
-
-    # Compute the rloo baseline
-    baseline = rloo_baseline(w_int_u_u_dt)  # (B,)
+    w_int_u_u_dt = int_u_u_dt + (int_u_u_dt - rloo_baseline(int_u_u_dt)).detach() * int_dws  # (B,)
 
     # Compute the KL divergence loss
-    loss_kl = torch.mean(w_int_u_u_dt - baseline.detach()) / 2  # TODO: figure out the use of rloo
-    # loss_kl = torch.mean(weighted_kl) / 2
+    loss_kl = torch.mean(w_int_u_u_dt) / 2
 
     return loss_kl
