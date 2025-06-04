@@ -78,76 +78,61 @@ def compute_int_dws(*, us: torch.Tensor, dWs: torch.Tensor) -> torch.Tensor:
     return int_dws
 
 
-def compute_ev_loss_from_ws(
-    *, ws: torch.Tensor, hs: torch.Tensor, h_stars: torch.Tensor, tol: float = 1e-7
+def compute_ev_loss(
+    *,
+    ws: torch.Tensor,
+    hs: torch.Tensor,
+    h_stars: torch.Tensor,
+    from_int_dws: bool = True,
+    use_stab: bool = True,
+    tol: float = 1e-7,
 ) -> torch.Tensor:
     """Compute the expected value loss from the importance weights.
     Args:
         ws: Tensor of shape (B,) representing the importance weights.
         hs: Tensor of shape (B, K) representing the sampled observable values.
         h_stars: Tensor of shape (K,) or (B, K) representing the ground truth expectation values.
+        from_int_dws: Whether to compute the loss from integrated gradients of the importance weights.
+        use_stab: Whether to use stability correction in the loss computation.
+        tol: Small value to avoid division by zero.
     Returns:
         Tensor representing the expected value loss.
     """
 
     B = ws.shape[0]
-    weighted_hs = ws.unsqueeze(1) * (hs - h_stars)  # (B, K)
-    # weighted_hs = ws.unsqueeze(1) * hs - h_stars  # (B, K)
-
-    pbar = torch.mean(hs, dim=0)
-    stab = torch.sum(pbar, dim=0) / (pbar + tol)  # (K,)
-    # stab = torch.ones_like(pbar)
-    stab = stab / torch.mean(stab)  # (K,)
-
-    # Compute the importance sample estimator
-    # (\sum_{i\neq j} w_i w_j h_i h_j) / (B(B-1))
-    loss_ev = (
-        (torch.sum(weighted_hs, dim=0) ** 2 - torch.sum(weighted_hs**2, dim=0))
-        * stab
-        / (B * (B - 1))
-    )  # (K,)
-
-    return torch.sum(loss_ev)
-
-
-def compute_ev_loss_from_int_dws(
-    *, int_dws: torch.Tensor, hs: torch.Tensor, h_stars: torch.Tensor, tol: float = 1e-7
-) -> torch.Tensor:
-    """Compute the expected value loss from the integrated gradient of the importance weights.
-    Args:
-        int_dws: Tensor of shape (B,) representing the integrated gradient of the importance weights.
-        hs: Tensor of shape (B, K) representing the sampled observable values.
-        h_stars: Tensor of shape (K,) or (B, K) representing the ground truth expectation values.
-    Returns:
-        Tensor representing the expected value loss.
-    """
-
-    B = int_dws.shape[0]
-
-    int_dws_ = int_dws.unsqueeze(1)  # (B, 1)
+    ws_ = ws.unsqueeze(1)  # (B, 1)
     dhs = hs - h_stars  # (B, K)
 
     print(hs, h_stars)
 
-    pbar = torch.mean(hs, dim=0)
-    stab = torch.sum(pbar, dim=0) / (pbar + tol)  # (K,)
-    # stab = torch.ones_like(pbar)
-    stab = stab / torch.mean(stab)  # (K,)
+    if use_stab and B > 1:  # Stability correction only makes sense for degree of freedom B > 1
+        pbar = torch.mean(hs, dim=0)
+        stab = torch.sum(pbar, dim=0) / (pbar + tol)  # (K,)
+        stab = stab / torch.mean(stab)  # (K,)
+    else:
+        stab = torch.tensor(1.0, device=ws.device)
 
     # Compute the importance sample estimator
-    # (\sum_{i\neq j} (int_dw_i + int_dw_j) h_i h_j) / (B(B-1))
+    if from_int_dws:
+        # 1) s_1[k] = \sum_i int_dw_i * h_{i,k}
+        s_1 = torch.sum(ws_ * dhs, dim=0)  # (K,)
 
-    # 1) s_1[k] = \sum_i int_dw_i * h_{i,k}
-    s_1 = torch.sum(int_dws_ * dhs, dim=0)  # (K,)
+        # 2) s_2[k] = \sum_i h_{i,k}
+        s_2 = torch.sum(dhs, dim=0)  # (K,)
 
-    # 2) s_2[k] = \sum_i h_{i,k}
-    s_2 = torch.sum(dhs, dim=0)  # (K,)
+        # 3) s_3[k] = \sum_i int_dw_i * h_{i,k}^2
+        s_3 = torch.sum(ws_ * dhs**2, dim=0)  # (K,)
 
-    # 3) s_3[k] = \sum_i int_dw_i * h_{i,k}^2
-    s_3 = torch.sum(int_dws_ * dhs**2, dim=0)  # (K,)
+        # 4) 2(s_1 * s_2 - s_3) = \sum_{i,j}(int_dw_i + int_dw_j) h_i h_j
+        # (\sum_{i\neq j} (int_dw_i + int_dw_j) h_i h_j) / (B(B-1))
+        loss_ev = 2 * (s_1 * s_2 - s_3) * stab / (B * (B - 1))  # (K,)
+    else:
+        w_dhs = ws_ * dhs  # (B, K)
 
-    # 4) combine:  \sum_{i,j}(int_dw_i + int_dw_j) h_i h_j = 2(s_1 * s_2 - s_3)
-    loss_ev = 2 * (s_1 * s_2 - s_3) * stab / (B * (B - 1))  # (K,)
+        # (\sum_{i\neq j} w_i w_j h_i h_j) / (B(B-1))
+        loss_ev = (
+            (torch.sum(w_dhs, dim=0) ** 2 - torch.sum(w_dhs**2, dim=0)) * stab / (B * (B - 1))
+        )  # (K,)
 
     return torch.sum(loss_ev)
 
@@ -164,39 +149,33 @@ def compute_int_u_u_dt(*, us: torch.Tensor, dts: torch.Tensor) -> torch.Tensor:
     return riemannian_quadratic_covariation(us, us, -dts)  # (B,)
 
 
-def compute_kl_loss_from_ws(*, int_u_u_dt: torch.Tensor, ws: torch.Tensor) -> torch.Tensor:
-    """Compute the KL divergence loss for the fine-tuning process.
-    Args:
-        int_u_u_dt: Tensor of shape (B,) representing the quadratic variation of the controlled term.
-        ws: Tensor of shape (B,) representing the importance weights.
-    Returns:
-        Tensor representing the KL divergence loss.
-    """
-
-    # Integrate from t=1 to t=0 i.e., reverse time
-    w_int_u_u_dt = ws * (int_u_u_dt - rloo_baseline(int_u_u_dt).detach())  # (B,)
-
-    # Compute the KL divergence loss
-    loss_kl = torch.mean(w_int_u_u_dt) / 2
-
-    return loss_kl
-
-
-def compute_kl_loss_from_int_dws(
-    *, int_u_u_dt: torch.Tensor, int_dws: torch.Tensor
+def compute_kl_loss(
+    *,
+    ws: torch.Tensor,
+    int_u_u_dt: torch.Tensor,
+    int_u_u_dt_sg: torch.Tensor,
+    from_int_dws: bool = True,
+    use_rloo: bool = True,
 ) -> torch.Tensor:
     """Compute the KL divergence loss for the fine-tuning process.
     Args:
+        ws: Tensor of shape (B,) representing the importance weights.
         int_u_u_dt: Tensor of shape (B,) representing the quadratic variation of the controlled term.
-        int_dws: Tensor of shape (B,) representing the integrated gradient of the importance weights.
+        int_u_u_dt_sg: Tensor of shape (B,) representing the quadratic variation of the controlled term
+            with stop gradient applied.
+        from_int_dws: Whether to compute the loss from integrated gradients of the importance weights.
+        use_rloo: Whether to use the REINFORCE leave-one-out baseline for the loss computation.
     Returns:
         Tensor representing the KL divergence loss.
     """
 
-    # Integrate from t=1 to t=0 i.e., reverse time
-    w_int_u_u_dt = int_u_u_dt + (int_u_u_dt - rloo_baseline(int_u_u_dt)).detach() * int_dws  # (B,)
+    baseline = rloo_baseline(int_u_u_dt_sg) if use_rloo else torch.zeros_like(int_u_u_dt)
 
-    # Compute the KL divergence loss
+    if from_int_dws:
+        w_int_u_u_dt = int_u_u_dt + (int_u_u_dt_sg - baseline) * ws  # (B,)
+    else:
+        w_int_u_u_dt = (int_u_u_dt - baseline) * ws  # (B,)
+
     loss_kl = torch.mean(w_int_u_u_dt) / 2
 
     return loss_kl

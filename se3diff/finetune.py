@@ -5,15 +5,12 @@ from tqdm.auto import trange
 
 from bioemu.denoiser import EulerMaruyamaPredictor
 from bioemu.ppft import (
-    compute_ev_loss_from_int_dws,
-    compute_ev_loss_from_ws,
+    compute_ev_loss,
     compute_int_dws,
     compute_int_u_u_dt,
-    compute_kl_loss_from_int_dws,
-    compute_kl_loss_from_ws,
-    compute_ws,
+    compute_kl_loss,
 )
-from bioemu.so3_sde import SO3SDE, angle_from_rotmat, igso3_expansion, rotmat_to_rotvec
+from bioemu.so3_sde import SO3SDE, angle_from_rotmat, igso3_expansion
 from se3diff.train import _get_so3_score
 
 
@@ -26,7 +23,7 @@ def reverse_finetune_diffusion(
     device: DeviceLikeType | None = None,
     batch_size: int = 4096,
     num_steps: int = 200,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
     sde.to(device)
     score_model.to(device)
@@ -41,6 +38,7 @@ def reverse_finetune_diffusion(
 
     xs_list = [x_t]
     dWs_list = []
+    us_list = []
 
     for i in trange(num_steps, desc="Reverse diffusion", leave=False):
         timestep = timesteps[i].item()
@@ -55,15 +53,16 @@ def reverse_finetune_diffusion(
             dt=dts[i],
             score=score,
             finetune_score=finetune_score,
-            with_noise=True,
         )
         xs_list.append(x_t)
         dWs_list.append(dW_t)
+        us_list.append(finetune_score)
 
     xs = torch.stack(xs_list, dim=0)  # (T+1, B, 3, 3)
+    us = torch.stack(us_list, dim=0)  # (T, B, 3)
     dWs = torch.stack(dWs_list, dim=0)  # (T, B, 3)
 
-    return xs, timesteps, dWs
+    return xs, timesteps, us, dWs
 
 
 def assign_igso3(
@@ -108,7 +107,7 @@ def compute_finetune_loss(
     tol: float = 1e-7,
 ) -> torch.Tensor:
     """Compute the loss for the fine-tuning process."""
-    xs, timesteps, dWs = reverse_finetune_diffusion(
+    xs, timesteps, us_sg, dWs = reverse_finetune_diffusion(
         sde,
         score_model,
         finetune_model,
@@ -129,17 +128,15 @@ def compute_finetune_loss(
     us = torch.stack(us_list, dim=0)  # (T, B, 3)
     hs = assign_igso3(xs[-1], mus, sigmas, h_stars, l_max=l_max, tol=tol)  # (B, K)
     dts = torch.diff(timesteps)  # (T,)
+
     int_u_u_dt = compute_int_u_u_dt(us=us, dts=dts)  # (B,)
-
-    # ws = compute_ws(us=us, dWs=dWs, dts=dts)
-    # loss_ev = compute_ev_loss_from_ws(ws=ws, hs=hs, h_stars=h_stars, tol=tol)
-    # loss_kl = compute_kl_loss_from_ws(int_u_u_dt=int_u_u_dt, ws=ws)
-
+    int_u_u_dt_sg = compute_int_u_u_dt(us=us_sg, dts=dts)  # (B,)
     int_dws = compute_int_dws(us=us, dWs=dWs)  # (B,)
-    loss_ev = compute_ev_loss_from_int_dws(
-        int_dws=int_dws, hs=hs, h_stars=h_stars, tol=tol
+
+    loss_ev = compute_ev_loss(ws=int_dws, hs=hs, h_stars=h_stars, tol=tol)
+    loss_kl = compute_kl_loss(
+        ws=int_dws, int_u_u_dt=int_u_u_dt, int_u_u_dt_sg=int_u_u_dt_sg
     )
-    loss_kl = compute_kl_loss_from_int_dws(int_u_u_dt=int_u_u_dt, int_dws=int_dws)
 
     loss = loss_ev + lambda_ * loss_kl
 
