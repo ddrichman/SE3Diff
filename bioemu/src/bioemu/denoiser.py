@@ -1,13 +1,14 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 from collections import defaultdict
-from typing import Literal, NamedTuple, TypedDict, cast, overload
+from typing import NamedTuple, TypedDict, cast
 
 import numpy as np
 import torch
 from torch import nn
 from torch._prims_common import DeviceLikeType
 from torch_geometric.utils import to_dense_batch
+from tqdm.auto import trange
 
 from bioemu.chemgraph import ChemGraph
 from bioemu.sde_lib import SDE, CosineVPSDE
@@ -22,6 +23,7 @@ class SDEs(TypedDict):
 class DenoisedSDEPath(NamedTuple):
     batches: list[ChemGraph]
     timesteps: torch.Tensor
+    us_batch: dict[str, torch.Tensor]
     dWs_batch: dict[str, torch.Tensor]
 
 
@@ -67,7 +69,6 @@ class EulerMaruyamaPredictor:
 
         return drift, diffusion
 
-    @overload
     def update_given_drift_and_diffusion(
         self,
         *,
@@ -75,40 +76,7 @@ class EulerMaruyamaPredictor:
         dt: torch.Tensor,
         drift: torch.Tensor,
         diffusion: torch.Tensor,
-        with_noise: Literal[False] = False,
-    ) -> tuple[torch.Tensor, torch.Tensor]: ...
-
-    @overload
-    def update_given_drift_and_diffusion(
-        self,
-        *,
-        x: torch.Tensor,
-        dt: torch.Tensor,
-        drift: torch.Tensor,
-        diffusion: torch.Tensor,
-        with_noise: Literal[True],
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]: ...
-
-    @overload
-    def update_given_drift_and_diffusion(
-        self,
-        *,
-        x: torch.Tensor,
-        dt: torch.Tensor,
-        drift: torch.Tensor,
-        diffusion: torch.Tensor,
-        with_noise: bool = False,
-    ) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]: ...
-
-    def update_given_drift_and_diffusion(
-        self,
-        *,
-        x: torch.Tensor,
-        dt: torch.Tensor,
-        drift: torch.Tensor,
-        diffusion: torch.Tensor,
-        with_noise: bool = False,
-    ) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         z = torch.randn_like(drift)
         dW = self.noise_weight * torch.sqrt(dt.abs()) * z
 
@@ -126,7 +94,7 @@ class EulerMaruyamaPredictor:
         else:
             raise NotImplementedError(f"Update for {type(self.corruption)} not implemented.")
 
-        return (sample, mean, dW) if with_noise else (sample, mean)
+        return sample, mean, dW
 
     def update_given_score(
         self,
@@ -137,8 +105,7 @@ class EulerMaruyamaPredictor:
         score: torch.Tensor,
         finetune_score: torch.Tensor | None = None,
         batch_idx: torch.Tensor | None = None,
-        with_noise: bool = False,
-    ) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
         # Set up different coefficients and terms.
         drift, diffusion = self.reverse_drift_and_diffusion(
@@ -146,9 +113,7 @@ class EulerMaruyamaPredictor:
         )
 
         # Update to next step using either special update for SDEs on SO(3) or standard update.
-        return self.update_given_drift_and_diffusion(
-            x=x, dt=dt, drift=drift, diffusion=diffusion, with_noise=with_noise
-        )
+        return self.update_given_drift_and_diffusion(x=x, dt=dt, drift=drift, diffusion=diffusion)
 
     def forward_sde_step(
         self,
@@ -157,16 +122,13 @@ class EulerMaruyamaPredictor:
         t: torch.Tensor,
         dt: torch.Tensor,
         batch_idx: torch.Tensor | None = None,
-        with_noise: bool = False,
-    ) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Update to next step using either special update for SDEs on SO(3) or standard update.
         Handles both SO(3) and Euclidean updates."""
 
         drift, diffusion = self.corruption.sde(x=x, t=t, batch_idx=batch_idx)
         # Update to next step using either special update for SDEs on SO(3) or standard update.
-        return self.update_given_drift_and_diffusion(
-            x=x, dt=dt, drift=drift, diffusion=diffusion, with_noise=with_noise
-        )
+        return self.update_given_drift_and_diffusion(x=x, dt=dt, drift=drift, diffusion=diffusion)
 
     def traceback_brownian_motion(
         self,
@@ -280,7 +242,7 @@ def euler_maruyama_predictor(
 
     batch_idx = batch.batch
 
-    for i in range(num_steps):
+    for i in trange(num_steps, desc="Denoising", leave=False):
         # Set the timestep
         timestep = timesteps[i].item()
         t = torch.full((batch.num_graphs,), timestep, device=device)
@@ -296,14 +258,12 @@ def euler_maruyama_predictor(
                 dt=dts[i],
                 score=score[field],
                 batch_idx=batch_idx,
-                with_noise=True,
             )[0]
         batch = batch.replace(**vals_hat)
 
     return batch
 
 
-@torch.no_grad()
 def euler_maruyama_predictor_finetune(
     *,
     batch: ChemGraph,
@@ -348,9 +308,10 @@ def euler_maruyama_predictor_finetune(
     batch_idx = batch.batch
 
     batches = [batch]
+    us_list_batch = defaultdict(list)
     dWs_list_batch = defaultdict(list)
 
-    for i in range(num_steps):
+    for i in trange(num_steps, desc="Denoising", leave=False):
         # Set the timestep
         timestep = timesteps[i].item()
         t = torch.full((batch.num_graphs,), timestep, device=device)
@@ -368,18 +329,21 @@ def euler_maruyama_predictor_finetune(
                 score=score[field],
                 finetune_score=finetune_score[field],
                 batch_idx=batch_idx,
-                with_noise=True,
             )
+            u_t = finetune_score[field]
+            us_list_batch[field].append(to_dense_batch(u_t, batch_idx)[0])  # (B, L, 3)
             dWs_list_batch[field].append(to_dense_batch(dW_t, batch_idx)[0])  # (B, L, 3)
 
         batch = batch.replace(**vals_hat)
         batches.append(batch)
 
+    us_batch = {field: torch.stack(us_list_batch[field], dim=0) for field in fields}
     dWs_batch = {field: torch.stack(dWs_list_batch[field], dim=0) for field in fields}
 
     return DenoisedSDEPath(
         batches=batches,
         timesteps=timesteps,
+        us_batch=us_batch,
         dWs_batch=dWs_batch,
     )
 
@@ -434,7 +398,7 @@ def heun_denoiser(
 
     batch_idx = batch.batch
 
-    for i in range(num_steps):
+    for i in trange(num_steps, desc="Denoising", leave=False):
         # Set the timestep
         timestep = timesteps[i].item()
         t = torch.full((batch.num_graphs,), timestep, device=device)
@@ -497,7 +461,6 @@ def heun_denoiser(
     return batch
 
 
-@torch.no_grad()
 def heun_denoiser_finetune(
     *,
     batch: ChemGraph,
@@ -553,9 +516,10 @@ def heun_denoiser_finetune(
     batch_idx = batch.batch
 
     batches = [batch]
+    us_list_batch = defaultdict(list)
     dWs_list_batch = defaultdict(list)
 
-    for i in range(num_steps):
+    for i in trange(num_steps, desc="Denoising", leave=False):
         # Set the timestep
         timestep = timesteps[i].item()
         t = torch.full((batch.num_graphs,), timestep, device=device)
@@ -641,13 +605,17 @@ def heun_denoiser_finetune(
                 finetune_score=finetune_score[field],
                 batch_idx=batch_idx,
             )
+            u_t = finetune_score[field]
+            us_list_batch[field].append(to_dense_batch(u_t, batch_idx)[0])  # (B, L, 3)
             dWs_list_batch[field].append(to_dense_batch(dW_t, batch_idx)[0])  # (B, L, 3)
 
+    us_batch = {field: torch.stack(us_list_batch[field], dim=0) for field in fields}
     dWs_batch = {field: torch.stack(dWs_list_batch[field], dim=0) for field in fields}
 
     return DenoisedSDEPath(
         batches=batches,
         timesteps=timesteps,
+        us_batch=us_batch,
         dWs_batch=dWs_batch,
     )
 
@@ -697,7 +665,7 @@ def dpm_solver(
 
     batch_idx = batch.batch
 
-    for i in range(num_steps):
+    for i in trange(num_steps, desc="Denoising", leave=False):
         timestep = timesteps[i].item()
         t = torch.full((batch.num_graphs,), timestep, device=device)
         t_next = t + dts[i]
@@ -796,7 +764,6 @@ def dpm_solver(
     return batch
 
 
-@torch.no_grad()
 def sde_dpm_solver_finetune(
     *,
     batch: ChemGraph,
@@ -807,10 +774,4 @@ def sde_dpm_solver_finetune(
     max_t: float,
     min_t: float,
     device: DeviceLikeType | None = None,
-) -> ChemGraph:
-    """
-    Implements the DPM solver for the VPSDE, with the Cosine noise schedule.
-    Following this paper: https://arxiv.org/pdf/2211.01095 SDE-DPM-Solver-2M.
-    DPM solver is used only for positions, not node orientations.
-    """
-    ...
+) -> DenoisedSDEPath: ...
