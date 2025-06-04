@@ -328,6 +328,66 @@ def generate_finetune_batch(
     )
 
 
+def _chunk_update(
+    batches: list[ChemGraph],
+    timesteps: torch.Tensor,
+    dts: torch.Tensor,
+    dWs_batch: dict[str, torch.Tensor],
+    int_u_u_dt_sg: torch.Tensor,
+    hs: torch.Tensor,
+    h_stars: torch.Tensor,
+    finetune_model: DiGConditionalScoreModel,
+    fields: list[str],
+    batch_size: int,
+    device: DeviceLikeType | None = None,
+    lambda_: float = 0.1,
+    tol: float = 1e-7,
+) -> torch.Tensor:
+
+    us_list_batch = defaultdict(list)
+    for i, batch in enumerate(batches):
+        timestep = timesteps[i].item()
+        t = torch.full((batch_size,), timestep, device=device)
+        u_t_batch = finetune_model(batch, t)
+        for field in fields:
+            u_t = u_t_batch[field]
+            us_list_batch[field].append(to_dense_batch(u_t, batch.batch)[0])  # (B, L, 3)
+    us_batch = {field: torch.stack(us_list_batch[field], dim=0) for field in fields}
+
+    us_batch_flattened = {field: us_batch[field].flatten(-2, -1) for field in fields}
+    dWs_batch_flattened = {field: dWs_batch[field].flatten(-2, -1) for field in fields}
+
+    # Compute the stochastic integrals on riemannian manifolds
+    int_dws = sum(
+        compute_int_dws(us=us_batch_flattened[field], dWs=dWs_batch_flattened[field])
+        for field in fields
+    )  # (B,)
+    assert isinstance(int_dws, torch.Tensor)
+
+    int_u_u_dt = sum(
+        compute_int_u_u_dt(us=us_batch_flattened[field], dts=dts) for field in fields
+    )  # (B,)
+    assert isinstance(int_u_u_dt, torch.Tensor)
+
+    # Compute the expected value loss and KL divergence loss
+    loss_ev = compute_ev_loss(
+        ws=int_dws, hs=hs, h_stars=h_stars, from_int_dws=True, use_stab=True, tol=tol
+    )
+    loss_kl = compute_kl_loss(
+        ws=int_dws,
+        int_u_u_dt=int_u_u_dt,
+        int_u_u_dt_sg=int_u_u_dt_sg,
+        from_int_dws=True,
+        use_rloo=True,
+    )
+
+    loss = loss_ev + lambda_ * loss_kl
+
+    loss.backward()
+
+    return loss.detach().clone()
+
+
 def compute_finetune_loss(
     sequence: str,
     h_stars: torch.Tensor,
@@ -393,6 +453,7 @@ def compute_finetune_loss(
         )
 
     # Store the stop gradient integral of u for computing aggregated gradient
+    # No randomness in the score model inference, so we can compute it once
     us_batch_sg_flattened = {field: us_batch_sg[field].flatten(-2, -1) for field in fields}
     int_u_u_dt_sg = sum(
         compute_int_u_u_dt(us=us_batch_sg_flattened[field], dts=dts) for field in fields
@@ -411,8 +472,8 @@ def compute_finetune_loss(
             loss += _chunk_update(
                 batches=batches[start_idx:end_idx],
                 timesteps=timesteps[start_idx:end_idx],
-                dWs_batch={field: dWs_batch[field][start_idx:end_idx] for field in fields},
                 dts=dts[start_idx:end_idx],
+                dWs_batch={field: dWs_batch[field][start_idx:end_idx] for field in fields},
                 int_u_u_dt_sg=int_u_u_dt_sg,
                 hs=hs,
                 h_stars=h_stars,
@@ -442,66 +503,6 @@ def compute_finetune_loss(
         loss = loss_ev + lambda_ * loss_kl
 
     return loss
-
-
-def _chunk_update(
-    batches: list[ChemGraph],
-    timesteps: torch.Tensor,
-    dWs_batch: dict[str, torch.Tensor],
-    dts: torch.Tensor,
-    int_u_u_dt_sg: torch.Tensor,
-    hs: torch.Tensor,
-    h_stars: torch.Tensor,
-    finetune_model: DiGConditionalScoreModel,
-    fields: list[str],
-    batch_size: int,
-    device: DeviceLikeType | None = None,
-    lambda_: float = 0.1,
-    tol: float = 1e-7,
-) -> torch.Tensor:
-
-    us_list_batch = defaultdict(list)
-    for i, batch in enumerate(batches):
-        timestep = timesteps[i].item()
-        t = torch.full((batch_size,), timestep, device=device)
-        u_t_batch = finetune_model(batch, t)
-        for field in fields:
-            u_t = u_t_batch[field]
-            us_list_batch[field].append(to_dense_batch(u_t, batch.batch)[0])  # (B, L, 3)
-    us_batch = {field: torch.stack(us_list_batch[field], dim=0) for field in fields}
-
-    us_batch_flattened = {field: us_batch[field].flatten(-2, -1) for field in fields}
-    dWs_batch_flattened = {field: dWs_batch[field].flatten(-2, -1) for field in fields}
-
-    # Compute the stochastic integrals on riemannian manifolds
-    int_dws = sum(
-        compute_int_dws(us=us_batch_flattened[field], dWs=dWs_batch_flattened[field])
-        for field in fields
-    )  # (B,)
-    assert isinstance(int_dws, torch.Tensor)
-
-    int_u_u_dt = sum(
-        compute_int_u_u_dt(us=us_batch_flattened[field], dts=dts) for field in fields
-    )  # (B,)
-    assert isinstance(int_u_u_dt, torch.Tensor)
-
-    # Compute the expected value loss and KL divergence loss
-    loss_ev = compute_ev_loss(
-        ws=int_dws, hs=hs, h_stars=h_stars, from_int_dws=True, use_stab=True, tol=tol
-    )
-    loss_kl = compute_kl_loss(
-        ws=int_dws,
-        int_u_u_dt=int_u_u_dt,
-        int_u_u_dt_sg=int_u_u_dt_sg,
-        from_int_dws=True,
-        use_rloo=True,
-    )
-
-    loss = loss_ev + lambda_ * loss_kl
-
-    loss.backward()
-
-    return loss.detach().clone()
 
 
 def finetune(
@@ -567,7 +568,7 @@ def finetune(
     sdes["node_orientations"].to(device)
 
     optimizer = AdamW(finetune_model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=eta_min)
+    scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs * num_batches, eta_min=eta_min)
 
     best_model_state = {}
     best_loss = float("inf")
@@ -610,12 +611,12 @@ def finetune(
                 )
 
             optimizer.step()
-            scheduler.step()
 
             l = loss.detach().item()
             epoch_loss += l
             pbar.set_postfix(loss=f"{l:.2f}")
 
+            scheduler.step()
         avg_loss = epoch_loss / num_batches
         logger.info(f"Epoch {epoch}: Average training loss = {avg_loss:.4f}")
 
