@@ -315,96 +315,11 @@ def generate_finetune_batch(
     )
 
 
-def compute_finetune_loss(
-    sequence: str,
-    h_stars: torch.Tensor,
-    finetune_bundle: FinetuneBundle,
-    denoised_sde_path: DenoisedSDEPath,
-    batch_size: int,
-    device: DeviceLikeType | None = None,
-    for_grad: bool = True,
-    micro_batch_size: int = 1,
-    lambda_: float = 0.1,
-    tol: float = 1e-7,
-) -> torch.Tensor:
-    """Compute the loss for the fine-tuning process."""
-
-    check_protein_valid(sequence)
-    if batch_size < 2:
-        raise ValueError("Batch size must be at least 2 for estimating variances.")
-
-    sdes, score_model, finetune_model, denoiser, h_func = finetune_bundle
-    batches, timesteps, us_batch_sg, dWs_batch = denoised_sde_path
-
-    fields = list(sdes.keys())  # ["pos", "node_orientations"]
-
-    # Pop the last batch (x_0) to use for computing h
-    hs = h_func(batch=batches[-1], sequence=sequence)  # (B, K)
-
-    dts = torch.diff(timesteps)
-    num_steps = len(dts)
-    if micro_batch_size > num_steps:
-        raise ValueError(
-            f"micro_batch_size ({micro_batch_size}) must be less than or equal to num_steps ({num_steps})."
-        )
-
-    # Store the stop gradient integral of u for computing aggregated gradient
-    us_batch_sg_flattened = {field: us_batch_sg[field].flatten(-2, -1) for field in fields}
-    int_u_u_dt_sg = sum(
-        compute_int_u_u_dt(us=us_batch_sg_flattened[field], dts=dts) for field in fields
-    )  # (B,)
-    assert isinstance(int_u_u_dt_sg, torch.Tensor)
-
-    num_micro_batches = math.ceil(num_steps / micro_batch_size)
-
-    if for_grad:
-        loss = torch.tensor(0.0, device=device)
-        for i in trange(num_micro_batches, desc="Reverse diffusion", leave=False):
-            # Compute the micro-batch indices
-            start_idx = i * micro_batch_size
-            end_idx = min((i + 1) * micro_batch_size, num_steps)
-
-            loss += _chunk_update(
-                batches=batches[start_idx:end_idx],
-                timesteps=timesteps[start_idx:end_idx],
-                dWs_batch={field: dWs_batch[field][start_idx:end_idx] for field in fields},
-                dts=dts[start_idx:end_idx],
-                int_u_u_dt_sg=int_u_u_dt_sg,
-                hs=hs,
-                h_stars=h_stars,
-                finetune_model=finetune_model,
-                fields=fields,
-                batch_size=batch_size,
-                device=device,
-                lambda_=lambda_,
-                tol=tol,
-            )
-    else:
-        # Return the real loss (not for gradients) used for validation
-        ws = torch.ones_like(int_u_u_dt_sg)  # (B,)
-        loss_ev = compute_ev_loss(
-            ws=ws, hs=hs, h_stars=h_stars, from_int_dws=False, use_stab=False, tol=tol
-        )
-        loss_kl = compute_kl_loss(
-            ws=ws,
-            int_u_u_dt=int_u_u_dt_sg,
-            int_u_u_dt_sg=int_u_u_dt_sg,
-            from_int_dws=False,
-            use_rloo=False,
-        )
-        logger.info(f"The expected value loss: {loss_ev.item():.4f}")
-        logger.info(f"The KL divergence loss: {loss_kl.item():.4f}")
-
-        loss = loss_ev + lambda_ * loss_kl
-
-    return loss
-
-
 def _chunk_update(
     batches: list[ChemGraph],
     timesteps: torch.Tensor,
-    dWs_batch: dict[str, torch.Tensor],
     dts: torch.Tensor,
+    dWs_batch: dict[str, torch.Tensor],
     int_u_u_dt_sg: torch.Tensor,
     hs: torch.Tensor,
     h_stars: torch.Tensor,
@@ -458,6 +373,92 @@ def _chunk_update(
     loss.backward()
 
     return loss.detach().clone()
+
+
+def compute_finetune_loss(
+    sequence: str,
+    h_stars: torch.Tensor,
+    finetune_bundle: FinetuneBundle,
+    denoised_sde_path: DenoisedSDEPath,
+    batch_size: int,
+    device: DeviceLikeType | None = None,
+    for_grad: bool = True,
+    micro_batch_size: int = 1,
+    lambda_: float = 0.1,
+    tol: float = 1e-7,
+) -> torch.Tensor:
+    """Compute the loss for the fine-tuning process."""
+
+    check_protein_valid(sequence)
+    if batch_size < 2:
+        raise ValueError("Batch size must be at least 2 for estimating variances.")
+
+    sdes, score_model, finetune_model, denoiser, h_func = finetune_bundle
+    batches, timesteps, us_batch_sg, dWs_batch = denoised_sde_path
+
+    fields = list(sdes.keys())  # ["pos", "node_orientations"]
+
+    # Pop the last batch (x_0) to use for computing h
+    hs = h_func(batch=batches[-1], sequence=sequence)  # (B, K)
+
+    dts = torch.diff(timesteps)
+    num_steps = len(dts)
+    if micro_batch_size > num_steps:
+        raise ValueError(
+            f"micro_batch_size ({micro_batch_size}) must be less than or equal to num_steps ({num_steps})."
+        )
+
+    # Store the stop gradient integral of u for computing aggregated gradient
+    # No randomness in the score model inference, so we can compute it once
+    us_batch_sg_flattened = {field: us_batch_sg[field].flatten(-2, -1) for field in fields}
+    int_u_u_dt_sg = sum(
+        compute_int_u_u_dt(us=us_batch_sg_flattened[field], dts=dts) for field in fields
+    )  # (B,)
+    assert isinstance(int_u_u_dt_sg, torch.Tensor)
+
+    num_micro_batches = math.ceil(num_steps / micro_batch_size)
+
+    if for_grad:
+        loss = torch.tensor(0.0, device=device)
+        for i in trange(num_micro_batches, desc="Reverse diffusion", leave=False):
+            # Compute the micro-batch indices
+            start_idx = i * micro_batch_size
+            end_idx = min((i + 1) * micro_batch_size, num_steps)
+
+            loss += _chunk_update(
+                batches=batches[start_idx:end_idx],
+                timesteps=timesteps[start_idx:end_idx],
+                dts=dts[start_idx:end_idx],
+                dWs_batch={field: dWs_batch[field][start_idx:end_idx] for field in fields},
+                int_u_u_dt_sg=int_u_u_dt_sg,
+                hs=hs,
+                h_stars=h_stars,
+                finetune_model=finetune_model,
+                fields=fields,
+                batch_size=batch_size,
+                device=device,
+                lambda_=lambda_,
+                tol=tol,
+            )
+    else:
+        # Return the real loss (not for gradients) used for validation
+        ws = torch.ones_like(int_u_u_dt_sg)  # (B,)
+        loss_ev = compute_ev_loss(
+            ws=ws, hs=hs, h_stars=h_stars, from_int_dws=False, use_stab=False, tol=tol
+        )
+        loss_kl = compute_kl_loss(
+            ws=ws,
+            int_u_u_dt=int_u_u_dt_sg,
+            int_u_u_dt_sg=int_u_u_dt_sg,
+            from_int_dws=False,
+            use_rloo=False,
+        )
+        logger.info(f"The expected value loss: {loss_ev.item():.4f}")
+        logger.info(f"The KL divergence loss: {loss_kl.item():.4f}")
+
+        loss = loss_ev + lambda_ * loss_kl
+
+    return loss
 
 
 def finetune(
@@ -523,7 +524,7 @@ def finetune(
     sdes["node_orientations"].to(device)
 
     optimizer = AdamW(finetune_model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=eta_min)
+    scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs * num_batches, eta_min=eta_min)
 
     best_model_state = {}
     best_loss = float("inf")
@@ -566,12 +567,12 @@ def finetune(
                 )
 
             optimizer.step()
-            scheduler.step()
 
             l = loss.detach().item()
             epoch_loss += l
             pbar.set_postfix(loss=f"{l:.2f}")
 
+            scheduler.step()
         avg_loss = epoch_loss / num_batches
         logger.info(f"Epoch {epoch}: Average training loss = {avg_loss:.4f}")
 
