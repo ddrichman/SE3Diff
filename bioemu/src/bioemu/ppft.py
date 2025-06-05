@@ -156,22 +156,35 @@ def compute_kl_loss(
     use_rloo: bool = True,
 ) -> torch.Tensor:
     """Compute the KL divergence loss for the fine-tuning process.
+
+    .. math ::
+        \nabla_\theta\mathbb{E}_{\mathbb{P}_{\operatorname{sg}(\theta)}}\left[\frac{1}{2} w_\theta \int_0^1 \norm{u_\theta}_\mathcal{M}^2\mathrm{d}t \right] = \nabla_\theta\mathbb{E}_{\mathbb{P}_{\operatorname{sg}(\theta)}}\left[\frac{1}{2} \int_0^1 \left\langle{u_\theta, \mathrm{d}\mathbf{W}_t^\mathcal{M}}\right\rangle_\mathcal{M}^2\left( \int_0^1 \norm{u_\theta}_\mathcal{M}^2\mathrm{d}t\right)_{\operatorname{sg}} + \frac{1}{2} \int_0^1 \norm{u_\theta}_\mathcal{M}^2\mathrm{d}t\right]
+
     Args:
         ws: Tensor of shape (B,) representing the importance weights.
         int_u_u_dt: Tensor of shape (B,) representing the quadratic variation of the controlled term.
         int_u_u_dt_sg: Tensor of shape (B,) representing the quadratic variation of the controlled term
-            with stop gradient applied.
+            with stop gradient applied. `int_u_u_dt_sg` is NOT the same as `int_u_u_dt.detach()`;
+            it contains the full integral of the controlled term, while `int_u_u_dt` is the integral
+            only over the current time interval.
         from_int_dws: Whether to compute the loss from integrated gradients of the importance weights.
         use_rloo: Whether to use the REINFORCE leave-one-out baseline for the loss computation.
     Returns:
         Tensor representing the KL divergence loss.
     """
 
-    baseline = rloo_baseline(int_u_u_dt_sg) if use_rloo else torch.zeros_like(int_u_u_dt)
+    if use_rloo:
+        baseline = rloo_baseline(int_u_u_dt.detach())
+        baseline_sg = rloo_baseline(int_u_u_dt_sg)
+    else:
+        baseline = torch.zeros_like(int_u_u_dt.detach())
+        baseline_sg = torch.zeros_like(int_u_u_dt_sg)
 
     if from_int_dws:
-        w_int_u_u_dt = int_u_u_dt + (int_u_u_dt_sg - baseline) * ws  # (B,)
+        w_int_u_u_dt = int_u_u_dt - baseline + (int_u_u_dt_sg - baseline_sg) * ws  # (B,)
     else:
+        # This is not applicable for training if integrals are cut into time intervals.
+        # The loss here is usually used for validation (i.e., `ws` is set to 1.0).
         w_int_u_u_dt = (int_u_u_dt - baseline) * ws  # (B,)
 
     loss_kl = torch.mean(w_int_u_u_dt) / 2
