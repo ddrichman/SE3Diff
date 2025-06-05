@@ -20,7 +20,7 @@ python -m bioemu.finetune \
     --ckpt_path None \
     --finetune_ckpt_path None \
     --model_config_path None \
-    --denoiser_type heun_finetune \
+    --denoiser_type euler_maruyama_finetune \
     --denoiser_config_path None \
     --h_func_type folding_stability \
     --h_func_config_path None \
@@ -28,4 +28,3 @@ python -m bioemu.finetune \
     --cache_so3_dir ~/.cache/bioemu/so3 \
     --msa_file None \
     --msa_host_url None \
-    --seed 0
