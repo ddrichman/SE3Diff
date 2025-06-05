@@ -214,7 +214,7 @@ dependencies:
       - namex==0.0.9
       - netcdf4==1.7.2
       - networkx==3.3
-      - numpy==1.26.4
+      - numpy==2.1.2
       - nvidia-cublas-cu12==12.8.3.14
       - nvidia-cuda-cupti-cu12==12.8.57
       - nvidia-cuda-nvcc-cu12==12.9.41
@@ -257,12 +257,12 @@ dependencies:
       - termcolor==3.1.0
       - threadpoolctl==3.6.0
       - toolz==1.0.0
-      - torch==2.7.0+cu128
+      - torch==2.7.1+cu128
       - torch-geometric==2.6.1
-      - torchaudio==2.7.0+cu128
-      - torchvision==0.22.0+cu128
+      - torchaudio==2.7.1+cu128
+      - torchvision==0.22.1+cu128
       - tqdm==4.67.1
-      - triton==3.3.0
+      - triton==3.3.1
       - typer==0.15.3
       - typing-inspection==0.4.1
       - tzdata==2025.2
@@ -271,3 +271,4 @@ dependencies:
       - wrapt==1.17.2
       - xxhash==3.5.0
       - yarl==1.20.0
+prefix: /home/fridrichmethod/miniconda3/envs/se3diff

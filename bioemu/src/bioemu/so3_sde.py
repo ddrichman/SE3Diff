@@ -25,7 +25,7 @@ class SO3SDE(SDE, torch.nn.Module):
         num_omega: int = 1000,
         omega_exponent: int = 3,
         l_max: int = 1000,
-        tol: float = 1e-6,
+        tol: float = 1e-7,
         cache_dir: str | None = None,
         overwrite_cache: bool = False,
     ) -> None:

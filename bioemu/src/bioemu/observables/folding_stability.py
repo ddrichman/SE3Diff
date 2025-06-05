@@ -46,9 +46,7 @@ def load_reference_ca_coords(
                 ca = residue["CA"]
                 coords_list.append(ca.get_coord() / 10)
     coords = np.stack(coords_list, axis=0)  # (L, 3)
-    ref_coords = torch.from_numpy(coords).to(device=device)
-
-    return ref_coords
+    return torch.from_numpy(coords).to(device=device, dtype=torch.float32)
 
 
 def compute_folded_proportion(
@@ -83,7 +81,7 @@ def compute_folded_proportion(
     return p_folded
 
 
-def compute_dG(p_folded: torch.Tensor, temperature: float = 298.0, tol: int = 1e-7) -> torch.Tensor:
+def compute_dG(p_folded: torch.Tensor, temperature: float = 298.0, tol: float = 1e-7) -> torch.Tensor:
     """
     Compute folding free energy from the folded proportion using Boltzmann relation.
 

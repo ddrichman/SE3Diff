@@ -20,6 +20,8 @@ export BIOEMU_COLABFOLD_DIR=$CONDA_PREFIX
 # conda activate se3diff
 conda install -c conda-forge jupyter --yes
 
+pip install uv
+
 # Install required packages with correct versions
 uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 uv pip install jax[cuda12]==0.5.3

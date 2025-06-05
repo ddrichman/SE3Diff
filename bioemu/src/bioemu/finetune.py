@@ -99,20 +99,27 @@ class FinetuneBundle(NamedTuple):
     h_func: Callable
 
 
-def initialize_weights_to_near_zero(module: nn.Module, std: float = 1e-3):
+def initialize_weights_to_near_zero(module: nn.Module, scale: float = 0.1):
     """Initialize weights of a module to near zero."""
     if isinstance(module, nn.Linear):
-        nn.init.normal_(module.weight, mean=0.0, std=std)
+        nn.init.xavier_normal_(module.weight)
+        with torch.no_grad():
+            module.weight.mul_(scale)
         if module.bias is not None:
             nn.init.zeros_(module.bias)
     elif isinstance(module, nn.Embedding):
-        nn.init.normal_(module.weight, mean=0.0, std=std)
+        nn.init.xavier_normal_(module.weight)
+        with torch.no_grad():
+            module.weight.mul_(scale)
     elif isinstance(module, nn.LayerNorm):
         nn.init.ones_(module.weight)
         nn.init.zeros_(module.bias)
     elif isinstance(module, nn.BatchNorm1d) or isinstance(module, nn.BatchNorm2d):
         nn.init.ones_(module.weight)
         nn.init.zeros_(module.bias)
+    else:
+        if hasattr(module, "bias") and isinstance(module.bias, torch.Tensor):
+            nn.init.zeros_(module.bias)
 
 
 def load_finetune_bundle(
@@ -236,7 +243,7 @@ class SequenceHStarsDataset(Dataset):
 
         sequence = self.df.iloc[idx][self.sequence_col]
         h_stars = torch.from_numpy(self.df[self.h_stars_cols].iloc[idx].values).to(
-            device=self.device
+            device=self.device, dtype=torch.float32
         )
 
         return sequence, h_stars
@@ -342,7 +349,7 @@ def _chunk_update(
     device: DeviceLikeType | None = None,
     lambda_: float = 0.1,
     tol: float = 1e-7,
-) -> torch.Tensor:
+):
 
     us_list_batch = defaultdict(list)
     for i, batch in enumerate(batches):
@@ -384,8 +391,6 @@ def _chunk_update(
     loss = loss_ev + lambda_ * loss_kl
 
     loss.backward()
-
-    return loss.detach().clone()
 
 
 def compute_finetune_loss(
@@ -444,6 +449,8 @@ def compute_finetune_loss(
     ###
 
     hs = h_func(batch=batches[-1], sequence=sequence)  # (B, K)
+    logger.debug(f"Current h_stars: {h_stars}")
+    logger.debug(f"Computed expected value of h function: {hs.mean(dim=0)}")
 
     dts = torch.diff(timesteps)
     num_steps = len(dts)
@@ -460,16 +467,15 @@ def compute_finetune_loss(
     )  # (B,)
     assert isinstance(int_u_u_dt_sg, torch.Tensor)
 
-    num_micro_batches = math.ceil(num_steps / micro_batch_size)
-
     if for_grad:
-        loss = torch.tensor(0.0, device=device)
+        num_micro_batches = math.ceil(num_steps / micro_batch_size)
+
         for i in trange(num_micro_batches, desc="Reverse diffusion", leave=False):
             # Compute the micro-batch indices
             start_idx = i * micro_batch_size
             end_idx = min((i + 1) * micro_batch_size, num_steps)
 
-            loss += _chunk_update(
+            _chunk_update(
                 batches=batches[start_idx:end_idx],
                 timesteps=timesteps[start_idx:end_idx],
                 dts=dts[start_idx:end_idx],
@@ -484,23 +490,26 @@ def compute_finetune_loss(
                 lambda_=lambda_,
                 tol=tol,
             )
-    else:
-        # Return the real loss (not for gradients) used for validation
-        ws = torch.ones_like(int_u_u_dt_sg)  # (B,)
-        loss_ev = compute_ev_loss(
-            ws=ws, hs=hs, h_stars=h_stars, from_int_dws=False, use_stab=False, tol=tol
-        )
-        loss_kl = compute_kl_loss(
-            ws=ws,
-            int_u_u_dt=int_u_u_dt_sg,
-            int_u_u_dt_sg=int_u_u_dt_sg,
-            from_int_dws=False,
-            use_rloo=False,
-        )
-        logger.info(f"The expected value loss: {loss_ev.item():.4f}")
-        logger.info(f"The KL divergence loss: {loss_kl.item():.4f}")
 
-        loss = loss_ev + lambda_ * loss_kl
+    # Return the real loss (not for gradients) used for validation
+    ws = torch.ones_like(int_u_u_dt_sg)  # (B,)
+    loss_ev = compute_ev_loss(
+        ws=ws, hs=hs, h_stars=h_stars, from_int_dws=False, use_stab=False, tol=tol
+    )
+    loss_kl = compute_kl_loss(
+        ws=ws,
+        int_u_u_dt=int_u_u_dt_sg,
+        int_u_u_dt_sg=int_u_u_dt_sg,
+        from_int_dws=False,
+        use_rloo=False,
+    )
+
+    logger.info(f"The expected value loss: {loss_ev.item():.4f}")
+    logger.info(f"The KL divergence loss: {loss_kl.item():.4f}")
+
+    loss = loss_ev + lambda_ * loss_kl
+
+    logger.info(f"Total loss for sequence '{sequence}': {loss.item():.4f}")
 
     return loss
 
@@ -517,17 +526,19 @@ def finetune(
     cache_embeds_dir: str | Path | None = None,
     msa_file: str | Path | None = None,
     msa_host_url: str | None = None,
-    seed: int | None = None,
 ):
     """Fine-tune the model using the provided data loaders and configuration."""
 
+    # Data parameters
     data_batch_size: int = finetune_config.data_batch_size
     shuffle: bool = finetune_config.shuffle
     num_workers: int = finetune_config.num_workers
 
+    # Loss parameters
     lambda_: float = finetune_config.lambda_
     tol: float = finetune_config.tol
 
+    # Training parameters
     batch_size: int = finetune_config.batch_size
     micro_batch_size: int = finetune_config.micro_batch_size
     num_epochs: int = finetune_config.num_epochs
@@ -558,7 +569,6 @@ def finetune(
         device=device,
     )
     num_batches = len(dataloader)
-    num_batches_val = len(dataloader_val)
 
     sdes, score_model, finetune_model, denoiser, h_func = finetune_bundle
 
@@ -571,62 +581,67 @@ def finetune(
     scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs * num_batches, eta_min=eta_min)
 
     best_model_state = {}
-    best_loss = float("inf")
+    best_val_loss = float("inf")
 
     if output_dir is None:
         output_dir = DEFAULT_MODEL_CHECKPOINT_DIR / "finetune"
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for epoch in range(1, num_epochs + 1):
-        finetune_model.train()
-        epoch_loss = 0.0
+    for epoch in range(num_epochs + 1):
+        # Train the model
+        if epoch > 0:
+            finetune_model.train()
+            epoch_loss = 0.0
 
-        pbar = tqdm(dataloader, desc=f"Epoch {epoch}")
-        for data_batch in pbar:
-            optimizer.zero_grad()
-            loss = torch.tensor(0.0, device=device)
-            for sequence, h_stars in data_batch:
-                denoised_sde_path = generate_finetune_batch(
-                    sequence=sequence,
-                    finetune_bundle=finetune_bundle,
-                    batch_size=batch_size,
-                    device=device,
-                    cache_embeds_dir=cache_embeds_dir,
-                    msa_file=msa_file,
-                    msa_host_url=msa_host_url,
-                    seed=seed,
-                )
-                loss += compute_finetune_loss(
-                    sequence=sequence,
-                    h_stars=h_stars,
-                    finetune_bundle=finetune_bundle,
-                    denoised_sde_path=denoised_sde_path,
-                    batch_size=batch_size,
-                    device=device,
-                    for_grad=True,  # used for training
-                    micro_batch_size=micro_batch_size,
-                    lambda_=lambda_,
-                    tol=tol,
-                )
+            pbar = tqdm(dataloader, desc=f"Epoch {epoch}")
+            for n_batch, data_batch in enumerate(pbar, start=1):
+                optimizer.zero_grad()
+                loss = torch.tensor(0.0, device=device)
+                for sequence, h_stars in data_batch:
+                    denoised_sde_path = generate_finetune_batch(
+                        sequence=sequence,
+                        finetune_bundle=finetune_bundle,
+                        batch_size=batch_size,
+                        device=device,
+                        cache_embeds_dir=cache_embeds_dir,
+                        msa_file=msa_file,
+                        msa_host_url=msa_host_url,
+                        seed=None,  # Use random seed for each batch
+                    )
+                    loss += compute_finetune_loss(
+                        sequence=sequence,
+                        h_stars=h_stars,
+                        finetune_bundle=finetune_bundle,
+                        denoised_sde_path=denoised_sde_path,
+                        batch_size=batch_size,
+                        device=device,
+                        for_grad=True,  # used for training
+                        micro_batch_size=micro_batch_size,
+                        lambda_=lambda_,
+                        tol=tol,
+                    )
 
-            optimizer.step()
+                optimizer.step()
+                scheduler.step()
 
-            l = loss.detach().item()
-            epoch_loss += l
-            pbar.set_postfix(loss=f"{l:.2f}")
+                l = loss.detach().item()
+                epoch_loss += l
+                pbar.set_postfix(loss=f"{l:.2f}")
 
-            scheduler.step()
-        avg_loss = epoch_loss / num_batches
-        logger.info(f"Epoch {epoch}: Average training loss = {avg_loss:.4f}")
+                avg_loss = epoch_loss / n_batch
+                logger.info(f"Epoch {epoch}: Running average training loss = {avg_loss:.4f}")
 
+        # Validation step
         if epoch % val_every_n_epochs == 0 or epoch == num_epochs:
             finetune_model.eval()
             epoch_val_loss = 0.0
+            avg_val_loss = 0.0
+
+            pbar_val = tqdm(dataloader_val, desc=f"Validation Epoch {epoch}")
             with torch.no_grad():
-                val_loss = torch.tensor(0.0, device=device)
-                pbar_val = tqdm(dataloader_val, desc=f"Validation Epoch {epoch}")
-                for val_data_batch in pbar_val:
+                for n_batch_val, val_data_batch in enumerate(pbar_val, start=1):
+                    val_loss = torch.tensor(0.0, device=device)
                     for sequence, h_stars in val_data_batch:
                         denoised_sde_path = generate_finetune_batch(
                             sequence=sequence,
@@ -636,7 +651,7 @@ def finetune(
                             cache_embeds_dir=cache_embeds_dir,
                             msa_file=msa_file,
                             msa_host_url=msa_host_url,
-                            seed=seed,
+                            seed=None,  # Use random seed for each batch
                         )
                         val_loss += compute_finetune_loss(
                             sequence=sequence,
@@ -651,18 +666,21 @@ def finetune(
                             tol=tol,
                         )
 
-                val_l = val_loss.detach().item()
-                epoch_val_loss += val_l
-                pbar_val.set_postfix(val_loss=f"{val_l:.2f}")
+                    val_l = val_loss.detach().item()
+                    epoch_val_loss += val_l
+                    pbar_val.set_postfix(val_loss=f"{val_l:.2f}")
 
-            avg_val_loss = epoch_val_loss / num_batches_val
-            logger.info(f"Epoch {epoch}: Average validation loss = {avg_val_loss:.4f}")
+                    avg_val_loss = epoch_val_loss / n_batch_val
+                    logger.info(
+                        f"Epoch {epoch}: Running average validation loss = {avg_val_loss:.4f}"
+                    )
 
-            if avg_val_loss < best_loss:
-                best_loss = avg_val_loss
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
                 best_model_state = finetune_model.state_dict()
                 logger.info(f"Updated best model at epoch {epoch}")
 
+        # Save the model periodically
         if epoch % save_every_n_epochs == 0 or epoch == num_epochs:
             torch.save(
                 finetune_model.state_dict(),
@@ -694,7 +712,6 @@ def main(
     cache_so3_dir: str | Path | None = None,
     msa_file: str | Path | None = None,
     msa_host_url: str | None = None,
-    seed: int | None = None,
 ):
     """Main function to run the fine-tuning process.
 
@@ -717,12 +734,7 @@ def main(
         cache_so3_dir: Directory to cache SO3 embeddings
         msa_file: Path to MSA file (optional)
         msa_host_url: URL for MSA host (optional)
-        seed: Random seed for reproducibility (optional)
-
     """
-
-    if seed is not None:
-        torch.manual_seed(seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -758,7 +770,6 @@ def main(
         cache_embeds_dir=cache_embeds_dir,
         msa_file=msa_file,
         msa_host_url=msa_host_url,
-        seed=seed,
     )
 
 
