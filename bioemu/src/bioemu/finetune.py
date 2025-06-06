@@ -99,7 +99,7 @@ class FinetuneBundle(NamedTuple):
     h_func: Callable
 
 
-def initialize_weights_to_near_zero(module: nn.Module, scale: float = 0.1):
+def initialize_weights_to_near_zero(module: nn.Module, scale: float = 1.0):
     """Initialize weights of a module to near zero."""
     if isinstance(module, nn.Linear):
         nn.init.xavier_normal_(module.weight)
@@ -757,6 +757,9 @@ def main(
     with open(finetune_config_path, "r") as f:
         finetune_config_yaml = yaml.safe_load(f)
     finetune_config: FinetuneConfig = hydra.utils.instantiate(finetune_config_yaml)
+
+    # Print finetune config in the terminal
+    logger.debug(f"Finetune configuration: {finetune_config}")
 
     finetune(
         csv_path=csv_path,

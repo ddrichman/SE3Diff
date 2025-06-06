@@ -6,16 +6,16 @@ shuffle: true
 num_workers: 0
 
 # Loss parameters
-lambda_: 0.1
+lambda_: 2.0e-05
 tol: 1.0e-07
 
 # Training parameters
 batch_size: 256
-micro_batch_size: 4
-num_epochs: 20
+micro_batch_size: 2
+num_epochs: 4
 save_every_n_epochs: 2
-val_every_n_epochs: 2
+val_every_n_epochs: 4
 lr: 5.0e-04
 betas: [0.9, 0.999]
-weight_decay: 1.0e-04
-eta_min: 1.0e-05
+weight_decay: 0.0
+eta_min: 5.0e-06
