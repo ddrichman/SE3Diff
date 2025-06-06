@@ -155,7 +155,7 @@ def compute_kl_loss(
     from_int_dws: bool = True,
     use_rloo: bool = True,
 ) -> torch.Tensor:
-    """Compute the KL divergence loss for the fine-tuning process.
+    r"""Compute the KL divergence loss for the fine-tuning process.
 
     .. math ::
         \nabla_\theta\mathbb{E}_{\mathbb{P}_{\operatorname{sg}(\theta)}}\left[\frac{1}{2} w_\theta \int_0^1 \norm{u_\theta}_\mathcal{M}^2\mathrm{d}t \right] = \nabla_\theta\mathbb{E}_{\mathbb{P}_{\operatorname{sg}(\theta)}}\left[\frac{1}{2} \int_0^1 \left\langle{u_\theta, \mathrm{d}\mathbf{W}_t^\mathcal{M}}\right\rangle_\mathcal{M}^2\left( \int_0^1 \norm{u_\theta}_\mathcal{M}^2\mathrm{d}t\right)_{\operatorname{sg}} + \frac{1}{2} \int_0^1 \norm{u_\theta}_\mathcal{M}^2\mathrm{d}t\right]
