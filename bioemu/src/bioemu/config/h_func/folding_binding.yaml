@@ -1,0 +1,5 @@
+_target_: bioemu.shortcuts.FoldingBinding
+k: -24.0
+d_0: 0.4
+tol: 1.0e-07
+cache_embeds_dir: ~/.cache/bioemu/embeds
